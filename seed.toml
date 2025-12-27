@@ -1,0 +1,63 @@
+# Seed data for chores database
+# Run with: cargo run --bin seed
+
+[[tasks]]
+name = "Water Plants"
+details = "Water all indoor plants, including the fern in the living room."
+schedule_type = "n_days"
+n_days = 3
+time = "09:00"
+
+[[tasks]]
+name = "Take Out Trash"
+details = "Take recycling and garbage bins to the curb."
+schedule_type = "n_weeks"
+n_weeks = 1
+days = ["monday", "thursday"]
+time = "07:00"
+
+[[tasks]]
+name = "Pay Rent"
+details = "Transfer rent payment to landlord."
+schedule_type = "monthwise"
+days_of_month = [1]
+time = "10:00"
+
+[[tasks]]
+name = "Team Meeting"
+details = "Attend bi-weekly team standup on the 1st and 3rd Tuesday."
+schedule_type = "weeks_of_month"
+weeks = [1, 3]
+days = ["tuesday"]
+time = "10:00"
+
+[[tasks]]
+name = "Vacuum Living Room"
+details = "Vacuum the carpet and under the furniture."
+schedule_type = "n_weeks"
+n_weeks = 1
+days = ["saturday"]
+time = "10:00"
+
+[[tasks]]
+name = "Change Bed Sheets"
+details = "Strip the bed, wash sheets, and make the bed with fresh linens."
+schedule_type = "n_weeks"
+n_weeks = 2
+days = ["sunday"]
+time = "11:00"
+
+[[tasks]]
+name = "Check Smoke Detectors"
+details = "Test all smoke and carbon monoxide detectors in the house."
+schedule_type = "monthwise"
+days_of_month = [15]
+time = "12:00"
+
+[[tasks]]
+name = "Water Outdoor Garden"
+details = "Water the vegetable garden and flower beds."
+schedule_type = "n_days"
+n_days = 2
+time = "07:30"
+

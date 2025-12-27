@@ -190,22 +190,8 @@ struct TaskWithStatus {
 
 // GET / - Homepage with task cards
 pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
-    // Collect all tasks
-    let mut all_tasks: Vec<DemoTask> = Vec::new();
-
-    // Add demo tasks
-    {
-        let demo_tasks = get_demo_tasks();
-        let tasks_guard = demo_tasks.lock().unwrap();
-        for task in tasks_guard.values() {
-            all_tasks.push(task.clone());
-        }
-    }
-
-    // Add database tasks
-    if let Ok(db_tasks) = db::get_all_tasks(&pool).await {
-        all_tasks.extend(db_tasks);
-    }
+    // Collect all tasks from database only (demo tasks are excluded from index)
+    let all_tasks: Vec<DemoTask> = db::get_all_tasks(&pool).await.unwrap_or_default();
 
     // Check completion status for each task
     let mut tasks_with_status: Vec<TaskWithStatus> = Vec::new();
@@ -1449,22 +1435,8 @@ fn render_sort_select(current_sort: &str) -> String {
 }
 
 async fn render_task_list(pool: &DbPool, sort: &str) -> String {
-    // Collect all tasks (demo + database)
-    let mut all_tasks: Vec<DemoTask> = Vec::new();
-
-    // Add demo tasks
-    {
-        let demo_tasks = get_demo_tasks();
-        let tasks_guard = demo_tasks.lock().unwrap();
-        for task in tasks_guard.values() {
-            all_tasks.push(task.clone());
-        }
-    }
-
-    // Add database tasks
-    if let Ok(db_tasks) = db::get_all_tasks(pool).await {
-        all_tasks.extend(db_tasks);
-    }
+    // Collect all tasks from database only (demo tasks are excluded from index)
+    let mut all_tasks: Vec<DemoTask> = db::get_all_tasks(pool).await.unwrap_or_default();
 
     // Sort tasks
     match sort {
