@@ -1,0 +1,15 @@
+[package]
+name = "chores"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.7"
+tokio = { version = "1.48.0", features = ["default", "rt-multi-thread"] }
+hypertext = "0.12.1"
+sqlx = { version = "0.8", features = [ "runtime-tokio", "macros", "sqlite" ] }
+anyhow = "1.0.100"
+tower-http = { version = "0.6.8", features = ["fs"] }
+chrono = "0.4.42"
+dotenvy = { git = "https://github.com/allan2/dotenvy.git", branch = "main" }
+serde = { version = "1.0", features = ["derive"] }

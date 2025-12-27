@@ -1,0 +1,589 @@
+/* Chores App Styles - Retro System 7 Style */
+
+body {
+    padding: 40px;
+    background: #fff;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+    font-size: 18px;
+}
+
+/* Task Editor Layout */
+.task-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px;
+    justify-content: flex-start;
+}
+
+.task-editor {
+    width: 500px;
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 18px;
+}
+
+.form-group input[type="text"],
+.form-group textarea,
+.form-group select,
+.form-group input[type="number"],
+.form-group input[type="time"] {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 18px;
+    padding: 8px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.form-group textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+/* Schedule Editor */
+.schedule-editor {
+    border: 2px solid #000;
+    padding: 20px;
+    margin-top: 16px;
+    background: #fff;
+}
+
+.schedule-editor h4 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+}
+
+/* Days Grid (for weekday checkboxes) */
+.days-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+/* Inline Fields */
+.inline-field {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.inline-field input[type="number"] {
+    width: 100px;
+}
+
+.inline-field input[type="time"] {
+    width: auto;
+}
+
+/* Weeks Checkboxes */
+.weeks-checkboxes {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* ============================================================================
+   Tasks Page
+   ============================================================================ */
+
+.tasks-page {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.tasks-page-header {
+    margin-bottom: 24px;
+    font-size: 18px;
+}
+
+.tasks-page-header a {
+    color: #000;
+}
+
+.tasks-page h1 {
+    margin-bottom: 24px;
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 32px;
+}
+
+/* List Controls */
+.list-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.list-controls-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.list-controls label {
+    margin: 0;
+    font-size: 18px;
+}
+
+.list-controls select {
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+    font-size: 18px;
+    padding: 6px 12px;
+}
+
+.list-controls .btn {
+    font-size: 18px;
+    padding: 8px 16px;
+}
+
+/* Task List (System 7 style) */
+.task-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #000;
+    background: #fff;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.task-list-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #000;
+    gap: 16px;
+}
+
+.task-list-item:last-child {
+    border-bottom: none;
+}
+
+.task-list-item:nth-child(odd) {
+    background: #fff;
+}
+
+.task-list-item:nth-child(even) {
+    background: #fff;
+}
+
+.task-list-item .btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    font-size: 16px;
+}
+
+.task-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 18px;
+    color: #000;
+    text-decoration: none;
+}
+
+.task-name:hover {
+    text-decoration: underline;
+}
+
+.task-due {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: #000;
+    text-align: right;
+}
+
+/* Empty List */
+.empty-list {
+    padding: 60px;
+    text-align: center;
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.empty-list p {
+    margin: 0;
+    font-size: 18px;
+}
+
+/* ============================================================================
+   Modal Overlay
+   ============================================================================ */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-overlay .task-editor {
+    width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 6px 6px 0 #000;
+}
+
+/* Ensure modal content is scrollable */
+.modal-overlay .window-pane {
+    max-height: calc(90vh - 60px);
+    overflow-y: auto;
+}
+
+/* ============================================================================
+   Homepage
+   ============================================================================ */
+
+.homepage {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.homepage h1 {
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 36px;
+    margin-bottom: 32px;
+}
+
+.homepage h2 {
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 24px;
+    margin: 0 0 20px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #000;
+}
+
+.task-section {
+    margin-bottom: 40px;
+}
+
+/* Card Grid - 4 columns */
+.task-card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+/* Task Cards - index card style */
+.task-card {
+    border: 2px solid #000;
+    background: #fff;
+    padding: 16px;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.task-card-title {
+    display: block;
+    font-weight: bold;
+    font-size: 18px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+    color: #000;
+    text-decoration: none;
+}
+
+.task-card-title:hover {
+    text-decoration: underline;
+}
+
+.task-card-description {
+    font-size: 16px;
+    margin-bottom: 12px;
+    flex: 1;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.task-card-due {
+    font-size: 14px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #000;
+}
+
+/* Complete button */
+.task-card-complete-btn {
+    font-size: 14px;
+    padding: 6px 12px;
+    margin-top: auto;
+}
+
+/* Completed label */
+.task-card-completed-label {
+    font-size: 14px;
+    margin-top: auto;
+    padding: 6px 0;
+}
+
+/* Card status variants - all black and white */
+.task-card-due,
+.task-card-alerting,
+.task-card-normal,
+.task-card-completed {
+    background: #fff;
+    border-color: #000;
+}
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 80px 40px;
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.empty-state p {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+}
+
+.empty-state a {
+    color: #000;
+    font-size: 20px;
+}
+
+/* Homepage footer */
+.homepage-footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 2px solid #000;
+}
+
+.homepage-footer a {
+    color: #000;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+    font-size: 20px;
+}
+
+/* Responsive: fewer columns on smaller screens */
+@media (max-width: 1000px) {
+    .task-card-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 750px) {
+    .task-card-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 500px) {
+    .task-card-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================================
+   Task Show Page
+   ============================================================================ */
+
+.task-show-page {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.task-show-header {
+    margin-bottom: 24px;
+    font-size: 18px;
+}
+
+.task-show-header a {
+    color: #000;
+}
+
+.task-show-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.task-show-page h1 {
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 32px;
+    margin: 0;
+}
+
+.task-show-title-row .btn {
+    font-size: 16px;
+    padding: 8px 16px;
+}
+
+.task-show-details {
+    margin-bottom: 24px;
+    padding: 16px;
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.task-show-details p {
+    margin: 0;
+    font-size: 18px;
+}
+
+.task-show-info {
+    margin-bottom: 32px;
+}
+
+.task-show-info-row {
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+
+.task-show-section {
+    margin-bottom: 40px;
+}
+
+.task-show-section h2 {
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 24px;
+    margin: 0 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #000;
+}
+
+/* ============================================================================
+   Calendar
+   ============================================================================ */
+
+.calendar {
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.calendar-title {
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 20px;
+    font-weight: bold;
+    text-align: center;
+    padding: 12px;
+    border-bottom: 2px solid #000;
+}
+
+.calendar-grid {
+    padding: 8px;
+}
+
+.calendar-header-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.calendar-header-cell {
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 8px 4px;
+}
+
+.calendar-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.calendar-cell {
+    border: 1px solid #000;
+    min-height: 80px;
+    padding: 4px;
+    position: relative;
+    font-size: 12px;
+}
+
+.calendar-cell-empty {
+    border: 1px solid #ccc;
+    background: #f5f5f5;
+}
+
+.calendar-cell-today {
+    border: 3px solid #000;
+}
+
+.calendar-day-number {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.calendar-due {
+    margin-top: 24px;
+    font-size: 11px;
+}
+
+.calendar-completed {
+    font-size: 11px;
+    margin-top: 4px;
+}
+
+/* ============================================================================
+   Completions List
+   ============================================================================ */
+
+.completions-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.completion-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #000;
+    font-size: 16px;
+}
+
+.completion-item:last-child {
+    border-bottom: none;
+}
+
+.completion-date {
+    flex: 1;
+}
+
+.completion-delete {
+    font-size: 18px;
+    padding: 4px 12px;
+    margin-left: 16px;
+}
+
+.completions-empty {
+    padding: 40px;
+    text-align: center;
+    border: 2px solid #000;
+    background: #fff;
+}
+
+.completions-empty p {
+    margin: 0;
+    font-size: 18px;
+}
