@@ -286,6 +286,7 @@ pub async fn get_task(pool: &DbPool, task_id: i64) -> Result<Option<DemoTask>> {
         n_weeks,
         monthwise,
         weeks_of_month,
+        alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
     }))
 }
 
@@ -315,6 +316,62 @@ pub async fn get_all_tasks(pool: &DbPool) -> Result<Vec<DemoTask>> {
             n_weeks,
             monthwise,
             weeks_of_month,
+            alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
+        });
+    }
+
+    Ok(result)
+}
+
+// Get total count of tasks for pagination
+pub async fn get_task_count(pool: &DbPool) -> Result<i64> {
+    let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks")
+        .fetch_one(pool)
+        .await?;
+    Ok(result.0)
+}
+
+// Get paginated tasks from the database (sorted by specified column)
+pub async fn get_tasks_paginated(
+    pool: &DbPool,
+    sort: &str,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<DemoTask>> {
+    // Build the ORDER BY clause based on sort parameter
+    let order_by = match sort {
+        "due" => "id", // We'll sort by next_due in Rust since it's calculated
+        _ => "name COLLATE NOCASE",
+    };
+
+    let query = format!("SELECT * FROM tasks ORDER BY {} LIMIT ? OFFSET ?", order_by);
+    let tasks: Vec<DbTask> = sqlx::query_as(&query)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+
+    let mut result = Vec::new();
+
+    for task in tasks {
+        let schedule: DbSchedule = sqlx::query_as("SELECT * FROM schedules WHERE id = ?")
+            .bind(task.schedule_id)
+            .fetch_one(pool)
+            .await?;
+
+        let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month) =
+            schedule.to_schedule_parts();
+
+        result.push(DemoTask {
+            id: task.id.to_string(),
+            name: task.name,
+            details: task.details.unwrap_or_default(),
+            schedule_kind,
+            n_days,
+            n_weeks,
+            monthwise,
+            weeks_of_month,
+            alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
         });
     }
 
@@ -422,9 +479,10 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
             .await?;
 
             // Update existing task
-            sqlx::query("UPDATE tasks SET name = ?, details = ? WHERE id = ?")
+            sqlx::query("UPDATE tasks SET name = ?, details = ?, alerting_time = ? WHERE id = ?")
                 .bind(&task.name)
                 .bind(&task.details)
+                .bind(task.alerting_time)
                 .bind(id)
                 .execute(pool)
                 .await?;
@@ -478,11 +536,12 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
 
     // Insert new task
     let task_result = sqlx::query(
-        "INSERT INTO tasks (name, details, schedule_id) VALUES (?, ?, ?)",
+        "INSERT INTO tasks (name, details, schedule_id, alerting_time) VALUES (?, ?, ?, ?)",
     )
     .bind(&task.name)
     .bind(&task.details)
     .bind(schedule_id)
+    .bind(task.alerting_time)
     .execute(pool)
     .await?;
 

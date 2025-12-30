@@ -1,3 +1,4 @@
+mod config;
 mod db;
 mod schedule;
 mod storybook;
@@ -9,15 +10,55 @@ use std::fs;
 use anyhow::Result;
 use axum::routing::get_service;
 use tower_http::services::ServeDir;
-use dotenvy::EnvLoader;
+use dotenvy::{EnvLoader, EnvMap};
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(name = "chores")]
+#[command(about = "A task management application")]
+struct Args {
+    /// Timezone identifier (e.g., "America/New_York", "Europe/London")
+    /// Overrides the TZ environment variable
+    #[arg(long)]
+    tz: Option<String>,
+}
+
+/// Load a config value from sources in priority order:
+/// 1. CLI argument (if provided)
+/// 2. Process environment variable
+/// 3. .env file
+/// 4. Default value
+fn get_config(
+    key: &str,
+    cli_value: Option<String>,
+    dotenv: &EnvMap,
+    default: &str,
+) -> String {
+    cli_value
+        .or_else(|| std::env::var(key).ok())
+        .or_else(|| dotenv.get(key).cloned())
+        .unwrap_or_else(|| default.to_string())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _env = EnvLoader::new().load()?;
+    // Load .env file (just read, don't modify environment)
+    let dotenv = EnvLoader::new()
+        .load()
+        .unwrap_or_default();
+
+    // Parse CLI arguments
+    let args = Args::parse();
+
+    // Get timezone: CLI flag > env var > .env > UTC
+    let tz_str = get_config("TZ", args.tz, &dotenv, "UTC");
+    config::init_timezone(&tz_str);
+    println!("Using timezone: {}", config::get_timezone());
+
+    // Get database URL: env var > .env > default
+    let database_url = get_config("DATABASE_URL", None, &dotenv, "sqlite:chores.db?mode=rwc");
 
     // Initialize database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:chores.db?mode=rwc".to_string());
     let pool = db::init_db(&database_url).await?;
     println!("Database initialized at: {}", database_url);
 

@@ -4,14 +4,138 @@ use axum::{
     routing::{get, post},
     Form, Router,
 };
-use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
 use hypertext::{prelude::*, Raw};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::config::get_timezone;
 use crate::db::{self, DbPool};
 use crate::schedule::{DaysOfWeek, Monthwise, NDays, NWeeks, ScheduleKind, WeeksOfMonth};
+
+// ============================================================================
+// Day Range Parsing and Formatting
+// ============================================================================
+
+/// Parse a day range string like "1, 4-7, 10, 15-17" into a sorted, deduplicated list of days.
+/// Returns Ok(days) on success, or Err(message) on parse error.
+pub fn parse_day_range(input: &str) -> Result<Vec<i32>, String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err("Please enter at least one day".to_string());
+    }
+
+    let mut days = Vec::new();
+
+    for part in input.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        if part.contains('-') {
+            // Range like "4-7"
+            let parts: Vec<&str> = part.split('-').collect();
+            if parts.len() != 2 {
+                return Err(format!("Invalid range format: '{}'", part));
+            }
+
+            let start: i32 = parts[0].trim().parse()
+                .map_err(|_| format!("Invalid number: '{}'", parts[0].trim()))?;
+            let end: i32 = parts[1].trim().parse()
+                .map_err(|_| format!("Invalid number: '{}'", parts[1].trim()))?;
+
+            if start > end {
+                return Err(format!("Range start must be <= end: '{}'", part));
+            }
+
+            for day in start..=end {
+                if day < 1 || day > 31 {
+                    return Err(format!("Day {} is out of range (1-31)", day));
+                }
+                days.push(day);
+            }
+        } else {
+            // Single number
+            let day: i32 = part.parse()
+                .map_err(|_| format!("Invalid number: '{}'", part))?;
+
+            if day < 1 || day > 31 {
+                return Err(format!("Day {} is out of range (1-31)", day));
+            }
+            days.push(day);
+        }
+    }
+
+    if days.is_empty() {
+        return Err("Please enter at least one day".to_string());
+    }
+
+    // Sort and deduplicate
+    days.sort();
+    days.dedup();
+
+    Ok(days)
+}
+
+/// Format a list of days into the simplest range format.
+/// e.g., [1, 2, 4, 5, 6, 7, 10, 15, 16, 17] -> "1-2, 4-7, 10, 15-17"
+pub fn format_day_range(days: &[i32]) -> String {
+    if days.is_empty() {
+        return String::new();
+    }
+
+    let mut sorted_days = days.to_vec();
+    sorted_days.sort();
+    sorted_days.dedup();
+
+    let mut ranges: Vec<String> = Vec::new();
+    let mut range_start = sorted_days[0];
+    let mut range_end = sorted_days[0];
+
+    for &day in &sorted_days[1..] {
+        if day == range_end + 1 {
+            // Extend current range
+            range_end = day;
+        } else {
+            // Close current range and start new one
+            if range_start == range_end {
+                ranges.push(format!("{}", range_start));
+            } else {
+                ranges.push(format!("{}-{}", range_start, range_end));
+            }
+            range_start = day;
+            range_end = day;
+        }
+    }
+
+    // Close the last range
+    if range_start == range_end {
+        ranges.push(format!("{}", range_start));
+    } else {
+        ranges.push(format!("{}-{}", range_start, range_end));
+    }
+
+    ranges.join(", ")
+}
+
+// ============================================================================
+// Form Validation
+// ============================================================================
+
+/// Holds validation errors for the task form
+#[derive(Default, Clone)]
+pub struct FormErrors {
+    pub monthwise_days: Option<String>,
+    pub general: Option<String>,
+}
+
+impl FormErrors {
+    pub fn has_errors(&self) -> bool {
+        self.monthwise_days.is_some() || self.general.is_some()
+    }
+}
 
 // Shared state for demo tasks (in-memory)
 pub type DemoTasksMap = Arc<Mutex<HashMap<String, DemoTask>>>;
@@ -36,6 +160,7 @@ pub fn get_demo_tasks() -> &'static DemoTasksMap {
                 n_weeks: default_n_weeks(),
                 monthwise: default_monthwise(),
                 weeks_of_month: default_weeks_of_month(),
+                alerting_time: 1440, // 24 hours
             },
         );
 
@@ -62,6 +187,7 @@ pub fn get_demo_tasks() -> &'static DemoTasksMap {
                 },
                 monthwise: default_monthwise(),
                 weeks_of_month: default_weeks_of_month(),
+                alerting_time: 720, // 12 hours
             },
         );
 
@@ -79,6 +205,7 @@ pub fn get_demo_tasks() -> &'static DemoTasksMap {
                     time: NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
                 },
                 weeks_of_month: default_weeks_of_month(),
+                alerting_time: 4320, // 3 days (72 hours)
             },
         );
 
@@ -105,6 +232,7 @@ pub fn get_demo_tasks() -> &'static DemoTasksMap {
                         time: NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
                     },
                 },
+                alerting_time: 60, // 1 hour
             },
         );
 
@@ -436,6 +564,10 @@ fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) 
                             strong { "Next Due: " }
                             span { (next_due_str) }
                         }
+                        div .task-show-info-row {
+                            strong { "Alert Before: " }
+                            span { (format_alerting_time(task.alerting_time)) }
+                        }
                     }
 
                     section .task-show-section {
@@ -461,7 +593,8 @@ fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) 
 fn render_calendar(task: &DemoTask, completions: &[db::CompletionRecord]) -> String {
     use chrono::{Datelike, NaiveDate, Weekday};
 
-    let now = Local::now();
+    let tz = get_timezone();
+    let now = Utc::now().with_timezone(&tz);
     let year = now.year();
     let month = now.month();
 
@@ -558,9 +691,7 @@ fn render_calendar(task: &DemoTask, completions: &[db::CompletionRecord]) -> Str
             ));
 
             // Check if completed after this due date but before next due
-            let due_datetime = date
-                .and_time(*time)
-                .and_local_timezone(Local)
+            let due_datetime = tz.from_local_datetime(&date.and_time(*time))
                 .unwrap()
                 .with_timezone(&Utc);
 
@@ -606,7 +737,8 @@ fn is_due_on_date(task: &DemoTask, date: chrono::NaiveDate) -> bool {
         ScheduleKind::NDays => {
             // For NDays, calculate based on interval from today
             // A task is due every N days, so we check if the date is N days apart from today
-            let today = Local::now().date_naive();
+            let tz = get_timezone();
+            let today = Utc::now().with_timezone(&tz).date_naive();
             let days_diff = (date - today).num_days().abs();
             days_diff % (task.n_days.days as i64) == 0
         }
@@ -638,16 +770,15 @@ fn get_due_time(task: &DemoTask, _date: chrono::NaiveDate) -> chrono::NaiveTime 
 fn find_next_due_after(task: &DemoTask, after: DateTime<Utc>) -> DateTime<Utc> {
     use chrono::Datelike;
 
-    let local_after: DateTime<Local> = after.into();
+    let tz = get_timezone();
+    let tz_after = after.with_timezone(&tz);
 
     // Look ahead up to 60 days for the next due date
     for days_ahead in 1..=60 {
-        let check_date = (local_after + Duration::days(days_ahead)).date_naive();
+        let check_date = (tz_after + Duration::days(days_ahead)).date_naive();
         if is_due_on_date(task, check_date) {
             let time = get_due_time(task, check_date);
-            return check_date
-                .and_time(time)
-                .and_local_timezone(Local)
+            return tz.from_local_datetime(&check_date.and_time(time))
                 .unwrap()
                 .with_timezone(&Utc);
         }
@@ -668,11 +799,12 @@ fn render_completions_list(task_id: &str, completions: &[db::CompletionRecord]) 
         .into_inner();
     }
 
+    let tz = get_timezone();
     let items: Vec<String> = completions
         .iter()
         .map(|c| {
-            let local: DateTime<Local> = c.completed_at.into();
-            let formatted = local.format("%A, %B %-d, %Y at %H:%M").to_string();
+            let tz_time = c.completed_at.with_timezone(&tz);
+            let formatted = tz_time.format("%A, %B %-d, %Y at %H:%M").to_string();
             let delete_url = format!("/tasks/{}/completions/{}", task_id, c.id);
 
             format!(
@@ -698,15 +830,27 @@ fn render_completions_list(task_id: &str, completions: &[db::CompletionRecord]) 
 pub struct ListQuery {
     #[serde(default = "default_sort")]
     pub sort: String,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_per_page")]
+    pub per_page: i64,
 }
 
 fn default_sort() -> String {
     "name".to_string()
 }
 
+fn default_page() -> i64 {
+    1
+}
+
+fn default_per_page() -> i64 {
+    10
+}
+
 // GET /tasks - Show the task index page
 async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>) -> Html<String> {
-    let list_html = render_task_list(&pool, &query.sort).await;
+    let list_html = render_task_list(&pool, &query.sort, query.page, query.per_page).await;
 
     let html = maud! {
         !DOCTYPE
@@ -727,11 +871,13 @@ async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>)
 
                     h1 { "Tasks" }
 
-                    // Sorting controls and New Task button
+                    // Sorting and pagination controls
                     div .list-controls {
                         div .list-controls-left {
                             label for="sort-select" { "Sort by: " }
                             (Raw::dangerously_create(&render_sort_select(&query.sort)))
+                            label for="per-page-select" { "Per page: " }
+                            (Raw::dangerously_create(&render_per_page_select(query.per_page)))
                         }
                         (Raw::dangerously_create(
                             r##"<button class="btn" hx-get="/tasks/new" hx-target="#modal-container" hx-swap="innerHTML">New Task</button>"##
@@ -755,7 +901,7 @@ async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>)
 
 // GET /tasks/list - Return just the task list (for HTMX)
 async fn tasks_list(State(pool): State<DbPool>, Query(query): Query<ListQuery>) -> Html<String> {
-    Html(render_task_list(&pool, &query.sort).await)
+    Html(render_task_list(&pool, &query.sort, query.page, query.per_page).await)
 }
 
 // GET /tasks/:id/edit - Get edit view for a single task (standalone, from saved state)
@@ -860,6 +1006,8 @@ pub struct TaskForm {
     pub wom_dow_sat: Option<String>,
     #[serde(default)]
     pub wom_time: Option<String>,
+    #[serde(default)]
+    pub alerting_time: Option<i64>,
 }
 
 impl TaskForm {
@@ -903,11 +1051,7 @@ impl TaskForm {
         let monthwise_days = self
             .monthwise_days
             .as_ref()
-            .map(|s| {
-                s.split(',')
-                    .filter_map(|d| d.trim().parse::<i32>().ok())
-                    .collect::<Vec<_>>()
-            })
+            .and_then(|s| parse_day_range(s).ok())
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| base_task.monthwise.days.clone());
         let monthwise = Monthwise {
@@ -967,7 +1111,26 @@ impl TaskForm {
             n_weeks,
             monthwise,
             weeks_of_month,
+            alerting_time: self.alerting_time.unwrap_or(base_task.alerting_time),
         }
+    }
+
+    /// Validate the form and return any errors
+    pub fn validate(&self) -> FormErrors {
+        let mut errors = FormErrors::default();
+
+        // Validate monthwise_days if schedule type is monthwise
+        if self.schedule_type == "monthwise" {
+            if let Some(ref days_str) = self.monthwise_days {
+                if let Err(e) = parse_day_range(days_str) {
+                    errors.monthwise_days = Some(e);
+                }
+            } else {
+                errors.monthwise_days = Some("Please enter at least one day".to_string());
+            }
+        }
+
+        errors
     }
 }
 
@@ -977,6 +1140,28 @@ async fn save_task(
     Path(id): Path<String>,
     Form(form): Form<TaskForm>,
 ) -> Html<String> {
+    // Validate the form
+    let errors = form.validate();
+    if errors.has_errors() {
+        // Return the form with errors - need to get the base task to render
+        if is_demo_id(&id) {
+            let tasks = get_demo_tasks();
+            let tasks_guard = tasks.lock().unwrap();
+            if let Some(base_task) = tasks_guard.get(&id) {
+                let temp_task = form.to_demo_task(&id, base_task);
+                return Html(render_task_modal_with_errors(&temp_task, &form, &errors));
+            }
+        } else if let Ok(task_id) = id.parse::<i64>() {
+            if let Ok(Some(base_task)) = db::get_task(&pool, task_id).await {
+                let temp_task = form.to_demo_task(&id, &base_task);
+                return Html(render_task_modal_with_errors(&temp_task, &form, &errors));
+            }
+        }
+    }
+
+    // On successful save, return a script that reloads the page (closes modal)
+    let success_response = r##"<script>location.reload();</script>"##.to_string();
+
     if is_demo_id(&id) {
         let tasks = get_demo_tasks();
         let mut tasks_guard = tasks.lock().unwrap();
@@ -984,19 +1169,14 @@ async fn save_task(
         if let Some(existing_task) = tasks_guard.get(&id) {
             let updated_task = form.to_demo_task(&id, existing_task);
             tasks_guard.insert(id.clone(), updated_task);
-        }
-
-        if let Some(task) = tasks_guard.get(&id) {
-            return Html(render_task_modal(task));
+            return Html(success_response);
         }
     } else {
         if let Ok(task_id) = id.parse::<i64>() {
             if let Ok(Some(existing_task)) = db::get_task(&pool, task_id).await {
                 let updated_task = form.to_demo_task(&id, &existing_task);
                 if let Ok(_) = db::save_task(&pool, &updated_task).await {
-                    if let Ok(Some(saved_task)) = db::get_task(&pool, task_id).await {
-                        return Html(render_task_modal(&saved_task));
-                    }
+                    return Html(success_response);
                 }
             }
         }
@@ -1046,6 +1226,14 @@ async fn new_task_modal() -> Html<String> {
 // POST /tasks/new - Create a new task
 async fn create_task(State(pool): State<DbPool>, Form(form): Form<TaskForm>) -> Html<String> {
     let base_task = create_default_task();
+
+    // Validate the form
+    let errors = form.validate();
+    if errors.has_errors() {
+        let temp_task = form.to_demo_task("", &base_task);
+        return Html(render_new_task_modal_with_errors(&temp_task, &form, &errors));
+    }
+
     let new_task = form.to_demo_task("", &base_task);
 
     // Save to database
@@ -1080,6 +1268,7 @@ fn create_default_task() -> DemoTask {
         n_weeks: default_n_weeks(),
         monthwise: default_monthwise(),
         weeks_of_month: default_weeks_of_month(),
+        alerting_time: 1440, // 24 hours in minutes
     }
 }
 
@@ -1093,138 +1282,54 @@ pub struct DemoTask {
     pub n_weeks: NWeeks,
     pub monthwise: Monthwise,
     pub weeks_of_month: WeeksOfMonth,
+    pub alerting_time: i64,
 }
 
 impl DemoTask {
     /// Calculate the next due date for this task
+    /// Uses is_due_on_date for consistency with calendar display
     pub fn next_due_date(&self) -> DateTime<Utc> {
         let now = Utc::now();
-        let local_now: DateTime<Local> = now.into();
+        let tz = get_timezone();
+        let tz_now = now.with_timezone(&tz);
+        let today = tz_now.date_naive();
 
-        match self.schedule_kind {
-            ScheduleKind::NDays => {
-                // Get today at the scheduled time
-                let today_at_time = local_now
-                    .date_naive()
-                    .and_time(self.n_days.time)
-                    .and_local_timezone(Local)
+        // Search up to 60 days ahead for the next due date
+        for days_ahead in 0..=60 {
+            let check_date = today + Duration::days(days_ahead);
+            
+            if is_due_on_date(self, check_date) {
+                let due_time = get_due_time(self, check_date);
+                let at_time = tz.from_local_datetime(&check_date.and_time(due_time))
                     .unwrap()
                     .with_timezone(&Utc);
-
-                if today_at_time > now {
-                    today_at_time
-                } else {
-                    today_at_time + Duration::days(self.n_days.days as i64)
+                
+                // Only return if this time is still in the future
+                if at_time > now {
+                    return at_time;
                 }
-            }
-            ScheduleKind::NWeeks => {
-                // Find the next active day
-                for days_ahead in 0..=(7 * self.n_weeks.weeks) {
-                    let check_date = local_now + Duration::days(days_ahead as i64);
-                    if self.n_weeks.sub_schedule.active(check_date.weekday()) {
-                        let at_time = check_date
-                            .date_naive()
-                            .and_time(self.n_weeks.sub_schedule.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time > now {
-                            return at_time;
-                        }
-                    }
-                }
-                now + Duration::days(7)
-            }
-            ScheduleKind::Monthwise => {
-                let today_day = local_now.date_naive().day() as i32;
-
-                // Check for next day in current month
-                for &day in &self.monthwise.days {
-                    if day > today_day {
-                        if let Some(date) = local_now.with_day(day as u32) {
-                            return date
-                                .date_naive()
-                                .and_time(self.monthwise.time)
-                                .and_local_timezone(Local)
-                                .unwrap()
-                                .with_timezone(&Utc);
-                        }
-                    } else if day == today_day {
-                        let at_time = local_now
-                            .date_naive()
-                            .and_time(self.monthwise.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time > now {
-                            return at_time;
-                        }
-                    }
-                }
-
-                // Next month
-                let next_month = if local_now.month() == 12 {
-                    local_now
-                        .with_year(local_now.year() + 1)
-                        .and_then(|d| d.with_month(1))
-                } else {
-                    local_now.with_month(local_now.month() + 1)
-                };
-
-                if let Some(nm) = next_month {
-                    if let Some(&first_day) = self.monthwise.days.iter().min() {
-                        if let Some(date) = nm.with_day(first_day as u32) {
-                            return date
-                                .date_naive()
-                                .and_time(self.monthwise.time)
-                                .and_local_timezone(Local)
-                                .unwrap()
-                                .with_timezone(&Utc);
-                        }
-                    }
-                }
-
-                now + Duration::days(30)
-            }
-            ScheduleKind::WeeksOfMonth => {
-                // Look ahead for the next matching date
-                for days_ahead in 0..=60 {
-                    let check_date = local_now + Duration::days(days_ahead as i64);
-                    let week_num = ((check_date.day() - 1) / 7 + 1) as i32;
-
-                    if self.weeks_of_month.sub_schedule.active(check_date.weekday())
-                        && self.weeks_of_month.weeks.contains(&week_num)
-                    {
-                        let at_time = check_date
-                            .date_naive()
-                            .and_time(self.weeks_of_month.sub_schedule.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time > now {
-                            return at_time;
-                        }
-                    }
-                }
-                now + Duration::days(30)
             }
         }
+
+        // Fallback: 60 days from now
+        now + Duration::days(60)
     }
 
     /// Format the next due date as a human-readable string
     pub fn time_as_readable_string(&self) -> String {
         let next_due = self.next_due_date();
-        let local: DateTime<Local> = next_due.into();
-        let now_local = Local::now();
+        let tz = get_timezone();
+        let tz_time = next_due.with_timezone(&tz);
+        let now_tz = Utc::now().with_timezone(&tz);
 
         // Get dates without time for comparison
-        let due_date = local.date_naive();
-        let today = now_local.date_naive();
+        let due_date = tz_time.date_naive();
+        let today = now_tz.date_naive();
         let yesterday = today - Duration::days(1);
         let tomorrow = today + Duration::days(1);
         let overmorrow = today + Duration::days(2);
 
-        let time_str = local.format("%H:%M").to_string();
+        let time_str = tz_time.format("%H:%M").to_string();
 
         if due_date == yesterday {
             format!("Yesterday at {}", time_str)
@@ -1236,7 +1341,7 @@ impl DemoTask {
             format!("Overmorrow at {}", time_str)
         } else {
             // "{day name}, {month} {day}" at {time}
-            local.format("%A, %B %-d at %H:%M").to_string()
+            tz_time.format("%A, %B %-d at %H:%M").to_string()
         }
     }
 
@@ -1245,130 +1350,43 @@ impl DemoTask {
         self.next_due_date() <= Utc::now()
     }
 
-    /// Check if the task is alerting (due within the next 24 hours but not yet due)
+    /// Check if the task is alerting (due within the alerting_time window but not yet due)
     pub fn is_alerting(&self) -> bool {
         let next_due = self.next_due_date();
         let now = Utc::now();
-        let in_24_hours = now + Duration::hours(24);
+        let alert_threshold = now + Duration::minutes(self.alerting_time);
 
-        next_due > now && next_due <= in_24_hours
+        next_due > now && next_due <= alert_threshold
     }
 
     /// Calculate the most recent past due date for this task
     /// Used to determine if a completion happened after the task became due
+    /// Uses is_due_on_date for consistency with calendar display
     pub fn most_recent_due_date(&self) -> DateTime<Utc> {
         let now = Utc::now();
-        let local_now: DateTime<Local> = now.into();
+        let tz = get_timezone();
+        let tz_now = now.with_timezone(&tz);
+        let today = tz_now.date_naive();
 
-        match self.schedule_kind {
-            ScheduleKind::NDays => {
-                // Get today at the scheduled time
-                let today_at_time = local_now
-                    .date_naive()
-                    .and_time(self.n_days.time)
-                    .and_local_timezone(Local)
+        // Search up to 60 days back for the most recent due date
+        for days_back in 0..=60 {
+            let check_date = today - Duration::days(days_back);
+            
+            if is_due_on_date(self, check_date) {
+                let due_time = get_due_time(self, check_date);
+                let at_time = tz.from_local_datetime(&check_date.and_time(due_time))
                     .unwrap()
                     .with_timezone(&Utc);
-
-                if today_at_time > now {
-                    // Most recent due was n days ago
-                    today_at_time - Duration::days(self.n_days.days as i64)
-                } else {
-                    today_at_time
+                
+                // Only return if this time is in the past (or now)
+                if at_time <= now {
+                    return at_time;
                 }
-            }
-            ScheduleKind::NWeeks => {
-                // Find the most recent past active day
-                for days_back in 0..=(7 * self.n_weeks.weeks) {
-                    let check_date = local_now - Duration::days(days_back as i64);
-                    if self.n_weeks.sub_schedule.active(check_date.weekday()) {
-                        let at_time = check_date
-                            .date_naive()
-                            .and_time(self.n_weeks.sub_schedule.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time <= now {
-                            return at_time;
-                        }
-                    }
-                }
-                now - Duration::days(7)
-            }
-            ScheduleKind::Monthwise => {
-                let today_day = local_now.date_naive().day() as i32;
-
-                // Check for most recent day in current month
-                for &day in self.monthwise.days.iter().rev() {
-                    if day < today_day {
-                        if let Some(date) = local_now.with_day(day as u32) {
-                            return date
-                                .date_naive()
-                                .and_time(self.monthwise.time)
-                                .and_local_timezone(Local)
-                                .unwrap()
-                                .with_timezone(&Utc);
-                        }
-                    } else if day == today_day {
-                        let at_time = local_now
-                            .date_naive()
-                            .and_time(self.monthwise.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time <= now {
-                            return at_time;
-                        }
-                    }
-                }
-
-                // Previous month
-                let prev_month = if local_now.month() == 1 {
-                    local_now
-                        .with_year(local_now.year() - 1)
-                        .and_then(|d| d.with_month(12))
-                } else {
-                    local_now.with_month(local_now.month() - 1)
-                };
-
-                if let Some(pm) = prev_month {
-                    if let Some(&last_day) = self.monthwise.days.iter().max() {
-                        if let Some(date) = pm.with_day(last_day as u32) {
-                            return date
-                                .date_naive()
-                                .and_time(self.monthwise.time)
-                                .and_local_timezone(Local)
-                                .unwrap()
-                                .with_timezone(&Utc);
-                        }
-                    }
-                }
-
-                now - Duration::days(30)
-            }
-            ScheduleKind::WeeksOfMonth => {
-                // Look back for the most recent matching date
-                for days_back in 0..=60 {
-                    let check_date = local_now - Duration::days(days_back as i64);
-                    let week_num = ((check_date.day() - 1) / 7 + 1) as i32;
-
-                    if self.weeks_of_month.sub_schedule.active(check_date.weekday())
-                        && self.weeks_of_month.weeks.contains(&week_num)
-                    {
-                        let at_time = check_date
-                            .date_naive()
-                            .and_time(self.weeks_of_month.sub_schedule.time)
-                            .and_local_timezone(Local)
-                            .unwrap()
-                            .with_timezone(&Utc);
-                        if at_time <= now {
-                            return at_time;
-                        }
-                    }
-                }
-                now - Duration::days(30)
             }
         }
+
+        // Fallback: 60 days ago
+        now - Duration::days(60)
     }
 }
 
@@ -1427,28 +1445,40 @@ fn render_sort_select(current_sort: &str) -> String {
     let due_selected = if current_sort == "due" { " selected" } else { "" };
 
     format!(
-        r##"<select id="sort-select" name="sort" hx-get="/tasks/list" hx-target="#task-list" hx-swap="innerHTML" hx-trigger="change">
+        r##"<select id="sort-select" name="sort" hx-get="/tasks/list" hx-target="#task-list" hx-swap="innerHTML" hx-trigger="change" hx-include="#per-page-select">
             <option value="name"{name_selected}>Name (A-Z)</option>
             <option value="due"{due_selected}>Next Due</option>
         </select>"##
     )
 }
 
-async fn render_task_list(pool: &DbPool, sort: &str) -> String {
-    // Collect all tasks from database only (demo tasks are excluded from index)
-    let mut all_tasks: Vec<DemoTask> = db::get_all_tasks(pool).await.unwrap_or_default();
+fn render_per_page_select(current_per_page: i64) -> String {
+    let options = [5, 10, 20, 50];
+    let options_html: String = options
+        .iter()
+        .map(|&n| {
+            let selected = if n == current_per_page { " selected" } else { "" };
+            format!(r#"<option value="{n}"{selected}>{n}</option>"#)
+        })
+        .collect();
 
-    // Sort tasks
-    match sort {
-        "due" => {
-            all_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
-        }
-        _ => {
-            all_tasks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        }
-    }
+    format!(
+        r##"<select id="per-page-select" name="per_page" hx-get="/tasks/list" hx-target="#task-list" hx-swap="innerHTML" hx-trigger="change" hx-include="#sort-select">
+            {options_html}
+        </select>"##
+    )
+}
 
-    if all_tasks.is_empty() {
+async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64) -> String {
+    // Ensure valid pagination values
+    let per_page = per_page.max(1).min(100);
+    let page = page.max(1);
+    let offset = (page - 1) * per_page;
+
+    // Get total count for pagination
+    let total_count = db::get_task_count(pool).await.unwrap_or(0);
+
+    if total_count == 0 {
         return maud! {
             div .empty-list {
                 p { "No tasks yet. Create your first task!" }
@@ -1458,15 +1488,141 @@ async fn render_task_list(pool: &DbPool, sort: &str) -> String {
         .into_inner();
     }
 
-    let items: Vec<String> = all_tasks.iter().map(render_task_list_item).collect();
+    // Calculate total pages
+    let total_pages = (total_count + per_page - 1) / per_page;
+    let page = page.min(total_pages); // Clamp page to max
+
+    // Fetch paginated tasks
+    let mut tasks: Vec<DemoTask> = db::get_tasks_paginated(pool, sort, offset, per_page)
+        .await
+        .unwrap_or_default();
+
+    // Sort tasks in Rust for "due" since it's calculated, not stored
+    if sort == "due" {
+        tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
+    }
+
+    let items: Vec<String> = tasks.iter().map(render_task_list_item).collect();
+    let pagination_html = render_pagination(page, total_pages, per_page, sort, total_count);
 
     maud! {
         ul .task-list {
             (Raw::dangerously_create(&items.join("\n")))
         }
+        (Raw::dangerously_create(&pagination_html))
     }
     .render()
     .into_inner()
+}
+
+fn render_pagination(current_page: i64, total_pages: i64, per_page: i64, sort: &str, total_count: i64) -> String {
+    if total_pages <= 1 {
+        return String::new();
+    }
+
+    let start_item = (current_page - 1) * per_page + 1;
+    let end_item = (current_page * per_page).min(total_count);
+
+    // Build page numbers to show
+    let mut page_nums: Vec<i64> = Vec::new();
+
+    // Always show first page
+    page_nums.push(1);
+
+    // Show pages around current
+    for p in (current_page - 2)..=(current_page + 2) {
+        if p > 1 && p < total_pages && !page_nums.contains(&p) {
+            page_nums.push(p);
+        }
+    }
+
+    // Always show last page
+    if total_pages > 1 && !page_nums.contains(&total_pages) {
+        page_nums.push(total_pages);
+    }
+
+    page_nums.sort();
+    page_nums.dedup();
+
+    // Build the page links with ellipsis
+    let mut page_links = String::new();
+    let mut prev_page: Option<i64> = None;
+
+    for &p in &page_nums {
+        // Add ellipsis if there's a gap
+        if let Some(prev) = prev_page {
+            if p > prev + 1 {
+                page_links.push_str(r#"<span class="pagination-ellipsis">…</span>"#);
+            }
+        }
+
+        if p == current_page {
+            page_links.push_str(&format!(
+                r#"<span class="pagination-page pagination-current">{}</span>"#,
+                p
+            ));
+        } else {
+            page_links.push_str(&format!(
+                r##"<button class="btn pagination-page" hx-get="/tasks/list?page={}&amp;per_page={}&amp;sort={}" hx-target="#task-list" hx-swap="innerHTML">{}</button>"##,
+                p, per_page, sort, p
+            ));
+        }
+
+        prev_page = Some(p);
+    }
+
+    // First and prev buttons
+    let first_btn = if current_page > 1 {
+        format!(
+            r##"<button class="btn pagination-btn" hx-get="/tasks/list?page=1&amp;per_page={}&amp;sort={}" hx-target="#task-list" hx-swap="innerHTML">«</button>"##,
+            per_page, sort
+        )
+    } else {
+        r#"<button class="btn pagination-btn" disabled>«</button>"#.to_string()
+    };
+
+    let prev_btn = if current_page > 1 {
+        format!(
+            r##"<button class="btn pagination-btn" hx-get="/tasks/list?page={}&amp;per_page={}&amp;sort={}" hx-target="#task-list" hx-swap="innerHTML">‹</button>"##,
+            current_page - 1, per_page, sort
+        )
+    } else {
+        r#"<button class="btn pagination-btn" disabled>‹</button>"#.to_string()
+    };
+
+    // Next and last buttons
+    let next_btn = if current_page < total_pages {
+        format!(
+            r##"<button class="btn pagination-btn" hx-get="/tasks/list?page={}&amp;per_page={}&amp;sort={}" hx-target="#task-list" hx-swap="innerHTML">›</button>"##,
+            current_page + 1, per_page, sort
+        )
+    } else {
+        r#"<button class="btn pagination-btn" disabled>›</button>"#.to_string()
+    };
+
+    let last_btn = if current_page < total_pages {
+        format!(
+            r##"<button class="btn pagination-btn" hx-get="/tasks/list?page={}&amp;per_page={}&amp;sort={}" hx-target="#task-list" hx-swap="innerHTML">»</button>"##,
+            total_pages, per_page, sort
+        )
+    } else {
+        r#"<button class="btn pagination-btn" disabled>»</button>"#.to_string()
+    };
+
+    format!(
+        r#"<div class="pagination">
+            <div class="pagination-info">Showing {}-{} of {}</div>
+            <div class="pagination-controls">
+                {}
+                {}
+                {}
+                {}
+                {}
+            </div>
+        </div>"#,
+        start_item, end_item, total_count,
+        first_btn, prev_btn, page_links, next_btn, last_btn
+    )
 }
 
 fn render_task_list_item(task: &DemoTask) -> String {
@@ -1489,7 +1645,19 @@ fn render_task_list_item(task: &DemoTask) -> String {
 }
 
 fn render_task_modal(task: &DemoTask) -> String {
-    let editor_html = render_task_editor_inner(task, true, false);
+    let editor_html = render_task_editor_inner(task, true, false, None, &FormErrors::default());
+
+    maud! {
+        div .modal-overlay {
+            (Raw::dangerously_create(&editor_html))
+        }
+    }
+    .render()
+    .into_inner()
+}
+
+fn render_task_modal_with_errors(task: &DemoTask, form: &TaskForm, errors: &FormErrors) -> String {
+    let editor_html = render_task_editor_inner(task, true, false, Some(form), errors);
 
     maud! {
         div .modal-overlay {
@@ -1501,7 +1669,19 @@ fn render_task_modal(task: &DemoTask) -> String {
 }
 
 fn render_new_task_modal(task: &DemoTask) -> String {
-    let editor_html = render_task_editor_inner(task, true, true);
+    let editor_html = render_task_editor_inner(task, true, true, None, &FormErrors::default());
+
+    maud! {
+        div .modal-overlay {
+            (Raw::dangerously_create(&editor_html))
+        }
+    }
+    .render()
+    .into_inner()
+}
+
+fn render_new_task_modal_with_errors(task: &DemoTask, form: &TaskForm, errors: &FormErrors) -> String {
+    let editor_html = render_task_editor_inner(task, true, true, Some(form), errors);
 
     maud! {
         div .modal-overlay {
@@ -1513,10 +1693,10 @@ fn render_new_task_modal(task: &DemoTask) -> String {
 }
 
 pub fn render_task_editor(task: &DemoTask) -> String {
-    render_task_editor_inner(task, false, false)
+    render_task_editor_inner(task, false, false, None, &FormErrors::default())
 }
 
-fn render_task_editor_inner(task: &DemoTask, is_modal: bool, is_new: bool) -> String {
+fn render_task_editor_inner(task: &DemoTask, is_modal: bool, is_new: bool, form: Option<&TaskForm>, errors: &FormErrors) -> String {
     let schedule_label = match task.schedule_kind {
         ScheduleKind::NDays => "Every N Days",
         ScheduleKind::NWeeks => "Weekly",
@@ -1527,10 +1707,13 @@ fn render_task_editor_inner(task: &DemoTask, is_modal: bool, is_new: bool) -> St
     // Use "new" as the ID suffix for new tasks
     let id_suffix = if is_new { "new".to_string() } else { task.id.clone() };
 
+    // Get raw form value for monthwise_days if there's an error (to preserve user input)
+    let raw_monthwise_days = form.and_then(|f| f.monthwise_days.clone());
+
     let schedule_editor_html = match task.schedule_kind {
         ScheduleKind::NDays => render_n_days_editor(&id_suffix, &task.n_days),
         ScheduleKind::NWeeks => render_n_weeks_editor(&id_suffix, &task.n_weeks),
-        ScheduleKind::Monthwise => render_monthwise_editor(&id_suffix, &task.monthwise),
+        ScheduleKind::Monthwise => render_monthwise_editor(&id_suffix, &task.monthwise, raw_monthwise_days.as_deref(), &errors.monthwise_days),
         ScheduleKind::WeeksOfMonth => render_weeks_of_month_editor(&id_suffix, &task.weeks_of_month),
     };
 
@@ -1571,10 +1754,10 @@ fn render_task_editor_inner(task: &DemoTask, is_modal: bool, is_new: bool) -> St
         )
     };
 
-    // Save button - for modal, close modal and reload page; for standalone, swap in place
+    // Save button - for modal, server returns reload trigger on success; for standalone, swap in place
     let save_button = if is_modal {
         format!(
-            r##"<button class="btn btn-default" type="button" hx-post="{}" hx-target="{}" hx-swap="innerHTML" hx-include="closest form" hx-on::after-request="location.reload()">Save</button>"##,
+            r##"<button class="btn btn-default" type="button" hx-post="{}" hx-target="{}" hx-swap="innerHTML" hx-include="closest form">Save</button>"##,
             hx_save_post, hx_target
         )
     } else {
@@ -1644,10 +1827,22 @@ fn render_task_editor_inner(task: &DemoTask, is_modal: bool, is_new: bool) -> St
                         (Raw::dangerously_create(&schedule_editor_html))
                     }
 
-                    div .form-group style="margin-top: 16px; text-align: right;" {
-                        (Raw::dangerously_create(&cancel_button))
-                        " "
-                        (Raw::dangerously_create(&save_button))
+                    div .form-group {
+                        label for=(format!("alerting-time-{}", id_suffix)) { "Alert Before Due" }
+                        (Raw::dangerously_create(&render_alerting_time_input(&id_suffix, task.alerting_time)))
+                    }
+
+                    div .form-group style="margin-top: 16px;" {
+                        @if errors.has_errors() {
+                            div .form-error-message style="margin-bottom: 12px; color: #c00; text-align: center;" {
+                                "Please fix the error(s) and resave"
+                            }
+                        }
+                        div style="text-align: right;" {
+                            (Raw::dangerously_create(&cancel_button))
+                            " "
+                            (Raw::dangerously_create(&save_button))
+                        }
                     }
                 }
             }
@@ -1679,6 +1874,75 @@ fn render_schedule_type_select(
             <option value="weeks_of_month"{weeks_of_month_selected}>Monthly (by weekday)</option>
         </select>"#
     )
+}
+
+fn render_alerting_time_input(task_id: &str, alerting_time: i64) -> String {
+    let input_id = format!("alerting-time-{}", task_id);
+    
+    // Format the current value for display
+    let display_str = format_alerting_time(alerting_time);
+    
+    // Check which preset matches (if any)
+    let presets = [
+        (0, "None"),
+        (30, "30 minutes"),
+        (60, "1 hour"),
+        (120, "2 hours"),
+        (360, "6 hours"),
+        (720, "12 hours"),
+        (1440, "1 day"),
+        (2880, "2 days"),
+        (4320, "3 days"),
+        (10080, "1 week"),
+    ];
+    
+    let mut options = String::new();
+    let mut found_preset = false;
+    
+    for (minutes, label) in presets {
+        let selected = if minutes == alerting_time {
+            found_preset = true;
+            " selected"
+        } else {
+            ""
+        };
+        options.push_str(&format!(r#"<option value="{}"{}>{}</option>"#, minutes, selected, label));
+    }
+    
+    // If current value doesn't match a preset, add it as a custom option
+    if !found_preset {
+        options.push_str(&format!(
+            r#"<option value="{}" selected>{} (custom)</option>"#,
+            alerting_time, display_str
+        ));
+    }
+    
+    format!(
+        r##"<div class="inline-field alerting-time-field">
+            <select id="{}" name="alerting_time" class="alerting-time-select">
+                {}
+            </select>
+            <span class="alerting-time-help">(task shows as "Upcoming" this long before due)</span>
+        </div>"##,
+        input_id, options
+    )
+}
+
+fn format_alerting_time(minutes: i64) -> String {
+    if minutes == 0 {
+        "None".to_string()
+    } else if minutes >= 10080 && minutes % 10080 == 0 {
+        let weeks = minutes / 10080;
+        if weeks == 1 { "1 week".to_string() } else { format!("{} weeks", weeks) }
+    } else if minutes >= 1440 && minutes % 1440 == 0 {
+        let days = minutes / 1440;
+        if days == 1 { "1 day".to_string() } else { format!("{} days", days) }
+    } else if minutes >= 60 && minutes % 60 == 0 {
+        let hours = minutes / 60;
+        if hours == 1 { "1 hour".to_string() } else { format!("{} hours", hours) }
+    } else {
+        if minutes == 1 { "1 minute".to_string() } else { format!("{} minutes", minutes) }
+    }
 }
 
 fn render_n_days_editor(task_id: &str, n_days: &NDays) -> String {
@@ -1816,29 +2080,36 @@ fn render_n_weeks_editor(task_id: &str, n_weeks: &NWeeks) -> String {
     .into_inner()
 }
 
-fn render_monthwise_editor(task_id: &str, monthwise: &Monthwise) -> String {
+fn render_monthwise_editor(task_id: &str, monthwise: &Monthwise, raw_days: Option<&str>, error: &Option<String>) -> String {
     let days_id = format!("monthwise-days-{}", task_id);
     let time_id = format!("monthwise-time-{}", task_id);
     let time_value = monthwise.time.format("%H:%M").to_string();
 
-    let days_str = monthwise
-        .days
-        .iter()
-        .map(|d| d.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
+    // Use raw_days if provided (preserves user input on error), otherwise format from parsed days
+    let days_str = raw_days
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format_day_range(&monthwise.days));
+
+    let has_error = error.is_some();
+    let error_class = if has_error { " input-error" } else { "" };
+
+    let error_html = error.as_ref().map(|msg| {
+        format!(r#"<div class="field-error-message" style="color: #c00; margin-bottom: 4px; font-size: 13px;">{}</div>"#, msg)
+    }).unwrap_or_default();
 
     maud! {
         div .form-group {
             label for=(days_id) { "On day(s) of month:" }
+            (Raw::dangerously_create(&error_html))
             input
                 type="text"
                 id=(days_id)
                 name="monthwise_days"
-                placeholder="e.g. 1, 15"
+                class=(error_class)
+                placeholder="e.g. 1, 4-7, 15"
                 value=(days_str);
             small style="display: block; color: #666; margin-top: 4px;" {
-                "Comma-separated list of days (1-31)"
+                "Days or ranges (e.g. 1, 4-7, 15-17)"
             }
         }
         div .form-group {

@@ -82,6 +82,27 @@ body {
     width: auto;
 }
 
+/* Alerting Time Field */
+.schedule-editor + .form-group {
+    margin-top: 24px;
+}
+
+.alerting-time-field {
+    flex-wrap: wrap;
+}
+
+.alerting-time-select {
+    min-width: 160px;
+    font-size: 18px;
+    padding: 8px;
+}
+
+.alerting-time-help {
+    color: #666;
+    font-size: 14px;
+    font-style: italic;
+}
+
 /* Weeks Checkboxes */
 .weeks-checkboxes {
     display: flex;
@@ -126,7 +147,11 @@ body {
 .list-controls-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 8px;
+}
+
+.list-controls-left label:not(:first-child) {
+    margin-left: 16px;
 }
 
 .list-controls label {
@@ -586,4 +611,80 @@ body {
 .completions-empty p {
     margin: 0;
     font-size: 18px;
+}
+
+/* ============================================================================
+   Pagination
+   ============================================================================ */
+
+.pagination {
+    margin-top: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+    gap: 16px;
+}
+
+.pagination-info {
+    font-size: 16px;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination-btn,
+.pagination-page {
+    padding: 6px 10px !important;
+    font-size: 16px;
+    min-width: 36px;
+    min-height: 32px;
+    box-sizing: border-box;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    padding: 6px 10px !important;
+    min-width: 36px;
+    min-height: 32px;
+}
+
+.pagination-current {
+    background: #000;
+    color: #fff;
+    border: 2px solid #000;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.pagination-ellipsis {
+    padding: 6px 8px;
+    font-size: 16px;
+}
+
+/* Form validation error styles */
+.input-error {
+    border: 2px solid #c00 !important;
+    box-shadow: 0 0 0 1px #c00;
+}
+
+.field-error-message {
+    color: #c00;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.form-error-message {
+    color: #c00;
+    text-align: center;
+    margin-bottom: 12px;
+    font-size: 13px;
 }

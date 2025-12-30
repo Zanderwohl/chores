@@ -1,5 +1,6 @@
 # Seed data for chores database
 # Run with: cargo run --bin seed
+# alerting_time is in minutes (default: 1440 = 24 hours)
 
 [[tasks]]
 name = "Water Plants"
@@ -7,6 +8,7 @@ details = "Water all indoor plants, including the fern in the living room."
 schedule_type = "n_days"
 n_days = 3
 time = "09:00"
+alerting_time = 1440  # 24 hours
 
 [[tasks]]
 name = "Take Out Trash"
@@ -15,6 +17,7 @@ schedule_type = "n_weeks"
 n_weeks = 1
 days = ["monday", "thursday"]
 time = "07:00"
+alerting_time = 720  # 12 hours
 
 [[tasks]]
 name = "Pay Rent"
@@ -22,6 +25,7 @@ details = "Transfer rent payment to landlord."
 schedule_type = "monthwise"
 days_of_month = [1]
 time = "10:00"
+alerting_time = 4320  # 3 days
 
 [[tasks]]
 name = "Team Meeting"
@@ -30,6 +34,7 @@ schedule_type = "weeks_of_month"
 weeks = [1, 3]
 days = ["tuesday"]
 time = "10:00"
+alerting_time = 60  # 1 hour
 
 [[tasks]]
 name = "Vacuum Living Room"
@@ -38,6 +43,7 @@ schedule_type = "n_weeks"
 n_weeks = 1
 days = ["saturday"]
 time = "10:00"
+alerting_time = 1440  # 24 hours
 
 [[tasks]]
 name = "Change Bed Sheets"
@@ -46,6 +52,7 @@ schedule_type = "n_weeks"
 n_weeks = 2
 days = ["sunday"]
 time = "11:00"
+alerting_time = 2880  # 2 days
 
 [[tasks]]
 name = "Check Smoke Detectors"
@@ -53,6 +60,7 @@ details = "Test all smoke and carbon monoxide detectors in the house."
 schedule_type = "monthwise"
 days_of_month = [15]
 time = "12:00"
+alerting_time = 10080  # 1 week
 
 [[tasks]]
 name = "Water Outdoor Garden"
@@ -60,4 +68,5 @@ details = "Water the vegetable garden and flower beds."
 schedule_type = "n_days"
 n_days = 2
 time = "07:30"
+alerting_time = 360  # 6 hours
 

@@ -4,6 +4,7 @@
 //! 
 //! Reads from seed.toml in the project root and inserts tasks into the database.
 
+mod config;
 mod db;
 mod schedule;
 mod task;
@@ -50,6 +51,10 @@ struct SeedTask {
     // WeeksOfMonth fields
     #[serde(default)]
     weeks: Option<Vec<i32>>,
+    
+    // Alerting time in minutes (default: 1440 = 24 hours)
+    #[serde(default)]
+    alerting_time: Option<i64>,
 }
 
 impl SeedTask {
@@ -97,6 +102,7 @@ impl SeedTask {
             n_weeks,
             monthwise,
             weeks_of_month,
+            alerting_time: self.alerting_time.unwrap_or(1440), // Default 24 hours
         }
     }
     
@@ -120,16 +126,35 @@ impl SeedTask {
     }
 }
 
+/// Load a config value from sources in priority order:
+/// 1. Process environment variable
+/// 2. .env file
+/// 3. Default value
+fn get_config(
+    key: &str,
+    dotenv: &dotenvy::EnvMap,
+    default: &str,
+) -> String {
+    std::env::var(key).ok()
+        .or_else(|| dotenv.get(key).cloned())
+        .unwrap_or_else(|| default.to_string())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("🌱 Seeding database...");
     
-    // Load environment
-    let _ = dotenvy::EnvLoader::new().load();
+    // Load .env file (just read, don't modify environment)
+    let dotenv = dotenvy::EnvLoader::new()
+        .load()
+        .unwrap_or_default();
+    
+    // Initialize timezone (used by tasks module)
+    let tz_str = get_config("TZ", &dotenv, "UTC");
+    config::init_timezone(&tz_str);
     
     // Connect to database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:chores.db?mode=rwc".to_string());
+    let database_url = get_config("DATABASE_URL", &dotenv, "sqlite:chores.db?mode=rwc");
     let pool = db::init_db(&database_url).await?;
     println!("📦 Connected to database: {}", database_url);
     
