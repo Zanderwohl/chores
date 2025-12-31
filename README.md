@@ -2,6 +2,15 @@
 
 A calendar system that combines recurring meetings with a todo list, thus creating a fresh todo list for each day.
 
+*The monthly calendar*
+![A month calendar on 2026 January with tasks under each day](pictures/monthly.png)
+
+*The Daily task list*
+![A daily to-do list wiht a date selector on 2026 January 1 with a list of tasks](pictures/daily.png)
+
+*The home page overview*
+![A page with index card-like elements showing different tasks Upcoming, Complete, or Other](pictures/home.png)
+
 ## Setup.
 
 You'll need the Rust build system which you can get from [rustup](https://rustup.rs/).
