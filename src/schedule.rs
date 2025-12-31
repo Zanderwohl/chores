@@ -24,7 +24,7 @@ impl Schedule {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum ScheduleKind {
     NDays,
     NWeeks,

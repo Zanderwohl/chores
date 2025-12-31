@@ -593,12 +593,52 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     // Get all tasks
     let all_tasks: Vec<DemoTask> = db::get_all_tasks(pool).await.unwrap_or_default();
     
+    // Get today's date for carried task check
+    let tz = get_timezone();
+    let today = Utc::now().with_timezone(&tz).date_naive();
+    
     // Filter tasks that are due on this date and get their times
     let mut tasks_on_day: Vec<(&DemoTask, chrono::NaiveTime)> = all_tasks
         .iter()
         .filter(|task| !task.is_inactive() && is_due_on_date(task, date))
         .map(|task| (task, get_due_time(task, date)))
         .collect();
+    
+    // Also include "carried" Once tasks on today:
+    // Once tasks that are completeable, scheduled in the past, and not yet completed
+    if date == today {
+        for task in all_tasks.iter() {
+            if task.is_inactive() {
+                continue;
+            }
+            if task.schedule_kind != ScheduleKind::Once {
+                continue;
+            }
+            if !task.completeable {
+                continue;
+            }
+            // Check if the Once date is in the past
+            let once_date = task.once.datetime.with_timezone(&tz).date_naive();
+            if once_date >= today {
+                continue; // Not in the past, skip
+            }
+            // Check if already in the list (shouldn't be, but just in case)
+            if tasks_on_day.iter().any(|(t, _)| t.id == task.id) {
+                continue;
+            }
+            // Check if the task has been completed
+            let is_completed = if let Ok(Some(completion_time)) = db::get_latest_completion(pool, &task.id).await {
+                completion_time > task.once.datetime
+            } else {
+                false
+            };
+            if is_completed {
+                continue;
+            }
+            // Add as a carried task with 00:00 time
+            tasks_on_day.push((task, NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
+        }
+    }
     
     // Sort by time
     tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
@@ -745,6 +785,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
 </head>
 <body>
     <div class="daily-page" id="daily-page">
+        <div class="print-header">{display_date}</div>
         <div class="daily-back-link">{back_link}</div>
         <div class="page-header">
             <h1>Daily</h1>
@@ -926,6 +967,42 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
             .filter(|task| !task.is_inactive() && is_due_on_date(task, date))
             .map(|task| (task, get_due_time(task, date)))
             .collect();
+        
+        // Also include "carried" Once tasks on today
+        if is_today {
+            for task in all_tasks.iter() {
+                if task.is_inactive() {
+                    continue;
+                }
+                if task.schedule_kind != ScheduleKind::Once {
+                    continue;
+                }
+                if !task.completeable {
+                    continue;
+                }
+                // Check if the Once date is in the past
+                let once_date = task.once.datetime.with_timezone(&tz).date_naive();
+                if once_date >= today {
+                    continue;
+                }
+                // Check if already in the list
+                if tasks_on_day.iter().any(|(t, _)| t.id == task.id) {
+                    continue;
+                }
+                // Check if the task has been completed
+                let is_completed = if let Ok(Some(completion_time)) = db::get_latest_completion(pool, &task.id).await {
+                    completion_time > task.once.datetime
+                } else {
+                    false
+                };
+                if is_completed {
+                    continue;
+                }
+                // Add as a carried task with 00:00 time
+                tasks_on_day.push((task, NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
+            }
+        }
+        
         tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
         
         let cell_class = if is_today { "calendar-cell calendar-cell-today" } else { "calendar-cell" };
@@ -980,6 +1057,9 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
         r#"<a class="btn" href="/">Home</a>"#
     };
     
+    // Print header with month and year
+    let print_header = format!("{} {}", month_names[(month - 1) as usize], year);
+    
     let html = format!(
         r##"<!DOCTYPE html>
 <html>
@@ -993,6 +1073,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
 </head>
 <body>
     <div class="calendar-page" id="calendar-page">
+        <div class="print-header">{print_header}</div>
         <div class="page-header">
             <h1>Calendar</h1>
             {home_button}
@@ -1005,6 +1086,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     </div>
 </body>
 </html>"##,
+        print_header = print_header,
         home_button = home_button,
         controls_html = controls_html,
         cells = cells,

@@ -1039,3 +1039,89 @@ a.daily-event-name:hover {
     margin-top: 20px;
     text-align: center;
 }
+
+/* Print-only headers (hidden on screen) */
+.print-header {
+    display: none;
+}
+
+/* Print styles for Daily and Calendar pages */
+@media print {
+    /* Hide navigation elements */
+    .daily-controls,
+    .daily-footer,
+    .daily-back-link,
+    .calendar-controls,
+    .calendar-footer,
+    .page-header .btn,
+    .page-header a.btn,
+    .page-header button.btn,
+    .page-header-buttons {
+        display: none !important;
+    }
+    
+    /* Show print header */
+    .print-header {
+        display: block;
+        font-size: 24px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #000;
+        padding-bottom: 12px;
+    }
+    
+    /* Hide the regular page header h1 when we have print header */
+    .daily-page .page-header,
+    .calendar-page .page-header {
+        display: none;
+    }
+    
+    /* Hide today highlight on calendar */
+    .calendar-cell-today {
+        background: transparent !important;
+        border-width: 1px !important;
+    }
+    
+    .calendar-cell-today .calendar-cell-day-number {
+        text-decoration: none !important;
+    }
+    
+    /* Hide daily date display (redundant with print header) */
+    .daily-date-display {
+        display: none;
+    }
+    
+    /* Calendar print layout - ensure grid displays and fits page width */
+    .calendar-grid-container {
+        display: grid !important;
+        grid-template-columns: repeat(7, 1fr) !important;
+        width: 100% !important;
+    }
+    
+    .calendar-cell {
+        min-height: auto !important;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    .calendar-cell-event {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        font-size: 10px;
+    }
+    
+    .calendar-cell-event-time {
+        font-size: 9px;
+    }
+    
+    .calendar-cell-day-number {
+        font-size: 12px;
+    }
+    
+    .calendar-header-cell {
+        font-size: 11px;
+        padding: 4px 2px;
+    }
+}

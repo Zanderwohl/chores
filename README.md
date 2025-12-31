@@ -1,5 +1,6 @@
 # Chores
 
+A calendar system that combines recurring meetings with a todo list, thus creating a fresh todo list for each day.
 
 ## Credits
 
