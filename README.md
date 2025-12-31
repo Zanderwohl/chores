@@ -2,6 +2,15 @@
 
 A calendar system that combines recurring meetings with a todo list, thus creating a fresh todo list for each day.
 
+Chores can be scheduled:
+
+- Just once, for unique tasks and deadlines
+- Every *n* days (e.g. "Water plants every 3 days")
+- Every week on certain days (e.g. "Pickleball at 6 pm Tuesdays and Thursdays")
+- Every month on certain days (e.g. "Paycheck on the 1st and 15th")
+- Certain weeks of the month (e.g. "Book club on the 1st and 3rd Tuesdays of the month at 7 pm")
+- Certain months (e.g. "Test smoke detectors on December 21st and June 21st")
+
 *The monthly calendar*
 ![A month calendar on 2026 January with tasks under each day](pictures/monthly.png)
 
