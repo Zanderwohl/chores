@@ -2,6 +2,32 @@
 
 A calendar system that combines recurring meetings with a todo list, thus creating a fresh todo list for each day.
 
+## Setup.
+
+You'll need the Rust build system which you can get from [rustup](https://rustup.rs/).
+
+1. Clone the repository.
+2. `cargo run --bin chores`
+
+There are also a couple of other bins to help with maintenence:
+
+- `backup` creates a copy of the database file without locking it.
+    - Usable while the server is running
+    - `cargo run --bin backup --db <DB TO BACK UP> --target <BACKUP DESTINATION>`
+    - If 'taget' flag is ommitted, defaults to `backup_{year}_{month}_{day}.db`, which is useful for chron jobs
+- `clear` completely clears the database. It does not back up anything.
+- `seed` seeds the database with a few example records. You probably don't need this except as a demo.
+
+## Environment variables
+
+Environment variables can be set in the bash environment, in the .env file, or as flag arguments.
+
+| Variable | Flag | Env var name | Description | Example |
+| --- | --- | --- | --- | --- |
+| Touch Mode | t | TOUCH | If present/true, makes links into large buttons | N/A |
+| Time Zone | tz | TZ | Locale string for the sever and user's time zone | America/Chicago |
+| Database File | db | DATABASE_URL | The file path to place/use the sqlite file. | chores.db |
+
 ## Credits
 
 ### system.css

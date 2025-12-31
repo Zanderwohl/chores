@@ -73,7 +73,8 @@ async fn main() -> Result<()> {
     }
 
     // Get database URL: env var > .env > default
-    let database_url = get_config("DATABASE_URL", None, &dotenv, "sqlite:chores.db?mode=rwc");
+    let database_url = get_config("DATABASE_URL", None, &dotenv, "chores.db");
+    let database_url = format!("sqlite:{}?mode=rwc", database_url);
 
     // Initialize database
     let pool = db::init_db(&database_url).await?;
