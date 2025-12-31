@@ -11,6 +11,8 @@ Chores can be scheduled:
 - Certain weeks of the month (e.g. "Book club on the 1st and 3rd Tuesdays of the month at 7 pm")
 - Certain months (e.g. "Test smoke detectors on December 21st and June 21st")
 
+Each of these pages is printable, so they can be used physically as well.
+
 *The monthly calendar*
 ![A month calendar on 2026 January with tasks under each day](pictures/monthly.png)
 
