@@ -1,8 +1,8 @@
 use anyhow::Result;
-use chrono::NaiveTime;
+use chrono::{DateTime, NaiveTime, Utc};
 use sqlx::{sqlite::SqlitePool, FromRow, Row};
 
-use crate::schedule::{DaysOfWeek, Monthwise, NDays, NWeeks, ScheduleKind, WeeksOfMonth};
+use crate::schedule::{CertainMonths, DaysOfWeek, Monthwise, NDays, NWeeks, Once, ScheduleKind, WeeksOfMonth};
 use crate::tasks::DemoTask;
 
 pub type DbPool = SqlitePool;
@@ -44,7 +44,13 @@ async fn create_tables(pool: &DbPool) -> Result<()> {
             weeks_of_month_thursday INTEGER,
             weeks_of_month_friday INTEGER,
             weeks_of_month_saturday INTEGER,
-            weeks_of_month_time TEXT
+            weeks_of_month_time TEXT,
+            -- CertainMonths fields
+            certain_months_months TEXT,
+            certain_months_days TEXT,
+            certain_months_time TEXT,
+            -- Once fields
+            once_datetime TEXT
         )
         "#,
     )
@@ -59,6 +65,9 @@ async fn create_tables(pool: &DbPool) -> Result<()> {
             details TEXT,
             schedule_id INTEGER NOT NULL,
             alerting_time INTEGER,
+            completeable INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT,
+            deleted_at TEXT,
             FOREIGN KEY (schedule_id) REFERENCES schedules(id)
         )
         "#,
@@ -171,6 +180,12 @@ pub struct DbSchedule {
     pub weeks_of_month_friday: Option<i32>,
     pub weeks_of_month_saturday: Option<i32>,
     pub weeks_of_month_time: Option<String>,
+    // CertainMonths
+    pub certain_months_months: Option<String>,
+    pub certain_months_days: Option<String>,
+    pub certain_months_time: Option<String>,
+    // Once
+    pub once_datetime: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -180,6 +195,9 @@ pub struct DbTask {
     pub details: Option<String>,
     pub schedule_id: i64,
     pub alerting_time: Option<i64>,
+    pub completeable: Option<i32>,
+    pub created_at: Option<String>,
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -208,12 +226,14 @@ fn parse_int_list(s: &Option<String>) -> Vec<i32> {
 }
 
 impl DbSchedule {
-    pub fn to_schedule_parts(&self) -> (ScheduleKind, NDays, NWeeks, Monthwise, WeeksOfMonth) {
+    pub fn to_schedule_parts(&self) -> (ScheduleKind, NDays, NWeeks, Monthwise, WeeksOfMonth, CertainMonths, Once) {
         let kind = match self.kind.as_str() {
             "n_days" => ScheduleKind::NDays,
             "n_weeks" => ScheduleKind::NWeeks,
             "monthwise" => ScheduleKind::Monthwise,
             "weeks_of_month" => ScheduleKind::WeeksOfMonth,
+            "certain_months" => ScheduleKind::CertainMonths,
+            "once" => ScheduleKind::Once,
             _ => ScheduleKind::NDays,
         };
 
@@ -255,7 +275,20 @@ impl DbSchedule {
             },
         };
 
-        (kind, n_days, n_weeks, monthwise, weeks_of_month)
+        let certain_months = CertainMonths {
+            months: parse_int_list(&self.certain_months_months),
+            days: parse_int_list(&self.certain_months_days),
+            time: parse_time(&self.certain_months_time),
+        };
+
+        let once = Once {
+            datetime: self.once_datetime.as_ref()
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(Utc::now),
+        };
+
+        (kind, n_days, n_weeks, monthwise, weeks_of_month, certain_months, once)
     }
 }
 
@@ -275,7 +308,14 @@ pub async fn get_task(pool: &DbPool, task_id: i64) -> Result<Option<DemoTask>> {
         .fetch_one(pool)
         .await?;
 
-    let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month) = schedule.to_schedule_parts();
+    let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month, certain_months, once) = schedule.to_schedule_parts();
+
+    let created_at = task.created_at.as_ref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+    let deleted_at = task.deleted_at.as_ref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
 
     Ok(Some(DemoTask {
         id: task_id.to_string(),
@@ -286,7 +326,12 @@ pub async fn get_task(pool: &DbPool, task_id: i64) -> Result<Option<DemoTask>> {
         n_weeks,
         monthwise,
         weeks_of_month,
+        certain_months,
+        once,
         alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
+        completeable: task.completeable.unwrap_or(1) != 0,
+        created_at,
+        deleted_at,
     }))
 }
 
@@ -304,8 +349,15 @@ pub async fn get_all_tasks(pool: &DbPool) -> Result<Vec<DemoTask>> {
             .fetch_one(pool)
             .await?;
 
-        let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month) =
+        let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month, certain_months, once) =
             schedule.to_schedule_parts();
+
+        let created_at = task.created_at.as_ref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+        let deleted_at = task.deleted_at.as_ref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
 
         result.push(DemoTask {
             id: task.id.to_string(),
@@ -316,7 +368,12 @@ pub async fn get_all_tasks(pool: &DbPool) -> Result<Vec<DemoTask>> {
             n_weeks,
             monthwise,
             weeks_of_month,
+            certain_months,
+            once,
             alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
+            completeable: task.completeable.unwrap_or(1) != 0,
+            created_at,
+            deleted_at,
         });
     }
 
@@ -359,8 +416,15 @@ pub async fn get_tasks_paginated(
             .fetch_one(pool)
             .await?;
 
-        let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month) =
+        let (schedule_kind, n_days, n_weeks, monthwise, weeks_of_month, certain_months, once) =
             schedule.to_schedule_parts();
+
+        let created_at = task.created_at.as_ref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+        let deleted_at = task.deleted_at.as_ref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc));
 
         result.push(DemoTask {
             id: task.id.to_string(),
@@ -371,7 +435,12 @@ pub async fn get_tasks_paginated(
             n_weeks,
             monthwise,
             weeks_of_month,
+            certain_months,
+            once,
             alerting_time: task.alerting_time.unwrap_or(1440), // Default 24 hours
+            completeable: task.completeable.unwrap_or(1) != 0,
+            created_at,
+            deleted_at,
         });
     }
 
@@ -387,6 +456,8 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
         ScheduleKind::NWeeks => "n_weeks",
         ScheduleKind::Monthwise => "monthwise",
         ScheduleKind::WeeksOfMonth => "weeks_of_month",
+        ScheduleKind::CertainMonths => "certain_months",
+        ScheduleKind::Once => "once",
     };
 
     let ndays_time = task.n_days.time.format("%H:%M").to_string();
@@ -412,6 +483,22 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
         .time
         .format("%H:%M")
         .to_string();
+    let cm_months = task
+        .certain_months
+        .months
+        .iter()
+        .map(|m| m.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let cm_days = task
+        .certain_months
+        .days
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let cm_time = task.certain_months.time.format("%H:%M").to_string();
+    let once_datetime = task.once.datetime.to_rfc3339();
 
     // Check if task exists
     if let Some(id) = task_id {
@@ -447,7 +534,11 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
                     weeks_of_month_thursday = ?,
                     weeks_of_month_friday = ?,
                     weeks_of_month_saturday = ?,
-                    weeks_of_month_time = ?
+                    weeks_of_month_time = ?,
+                    certain_months_months = ?,
+                    certain_months_days = ?,
+                    certain_months_time = ?,
+                    once_datetime = ?
                 WHERE id = ?
                 "#,
             )
@@ -474,15 +565,24 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
             .bind(task.weeks_of_month.sub_schedule.friday as i32)
             .bind(task.weeks_of_month.sub_schedule.saturday as i32)
             .bind(&wom_time)
+            .bind(&cm_months)
+            .bind(&cm_days)
+            .bind(&cm_time)
+            .bind(&once_datetime)
             .bind(existing.schedule_id)
             .execute(pool)
             .await?;
 
             // Update existing task
-            sqlx::query("UPDATE tasks SET name = ?, details = ?, alerting_time = ? WHERE id = ?")
+            let created_at_str = task.created_at.map(|dt| dt.to_rfc3339());
+            let deleted_at_str = task.deleted_at.map(|dt| dt.to_rfc3339());
+            sqlx::query("UPDATE tasks SET name = ?, details = ?, alerting_time = ?, completeable = ?, created_at = ?, deleted_at = ? WHERE id = ?")
                 .bind(&task.name)
                 .bind(&task.details)
                 .bind(task.alerting_time)
+                .bind(task.completeable as i32)
+                .bind(&created_at_str)
+                .bind(&deleted_at_str)
                 .bind(id)
                 .execute(pool)
                 .await?;
@@ -502,8 +602,10 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
             monthwise_days, monthwise_time,
             weeks_of_month_weeks, weeks_of_month_sunday, weeks_of_month_monday,
             weeks_of_month_tuesday, weeks_of_month_wednesday, weeks_of_month_thursday,
-            weeks_of_month_friday, weeks_of_month_saturday, weeks_of_month_time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            weeks_of_month_friday, weeks_of_month_saturday, weeks_of_month_time,
+            certain_months_months, certain_months_days, certain_months_time,
+            once_datetime
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(kind_str)
@@ -529,21 +631,43 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
     .bind(task.weeks_of_month.sub_schedule.friday as i32)
     .bind(task.weeks_of_month.sub_schedule.saturday as i32)
     .bind(&wom_time)
+    .bind(&cm_months)
+    .bind(&cm_days)
+    .bind(&cm_time)
+    .bind(&once_datetime)
     .execute(pool)
     .await?;
 
     let schedule_id = schedule_result.last_insert_rowid();
 
     // Insert new task
+    let created_at_str = task.created_at.map(|dt| dt.to_rfc3339());
+    let deleted_at_str = task.deleted_at.map(|dt| dt.to_rfc3339());
     let task_result = sqlx::query(
-        "INSERT INTO tasks (name, details, schedule_id, alerting_time) VALUES (?, ?, ?, ?)",
+        "INSERT INTO tasks (name, details, schedule_id, alerting_time, completeable, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&task.name)
     .bind(&task.details)
     .bind(schedule_id)
     .bind(task.alerting_time)
+    .bind(task.completeable as i32)
+    .bind(&created_at_str)
+    .bind(&deleted_at_str)
     .execute(pool)
     .await?;
 
     Ok(task_result.last_insert_rowid())
+}
+
+// Set or clear the deleted_at timestamp for a task
+pub async fn set_task_deleted_at(pool: &DbPool, task_id: i64, deleted_at: Option<DateTime<Utc>>) -> Result<()> {
+    let deleted_at_str = deleted_at.map(|dt| dt.to_rfc3339());
+    
+    sqlx::query("UPDATE tasks SET deleted_at = ? WHERE id = ?")
+        .bind(&deleted_at_str)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+    
+    Ok(())
 }

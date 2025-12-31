@@ -7,6 +7,8 @@ pub struct Schedule {
     pub n_weeks: NWeeks,
     pub monthwise: Monthwise,
     pub weeks_of_month: WeeksOfMonth,
+    pub certain_months: CertainMonths,
+    pub once: Once,
 }
 
 impl Schedule {
@@ -16,6 +18,8 @@ impl Schedule {
             ScheduleKind::NWeeks => self.n_weeks.most_recent_due_date(),
             ScheduleKind::Monthwise => self.monthwise.most_recent_due_date(),
             ScheduleKind::WeeksOfMonth => self.weeks_of_month.most_recent_due_date(),
+            ScheduleKind::CertainMonths => self.certain_months.most_recent_due_date(),
+            ScheduleKind::Once => self.once.most_recent_due_date(),
         }
     }
 }
@@ -26,6 +30,20 @@ pub enum ScheduleKind {
     NWeeks,
     Monthwise,
     WeeksOfMonth,
+    CertainMonths,
+    Once,
+}
+
+// A one-time event at a specific date and time
+#[derive(Clone)]
+pub struct Once {
+    pub datetime: DateTime<Utc>,
+}
+
+impl Once {
+    pub fn most_recent_due_date(&self) -> DateTime<Utc> {
+        self.datetime
+    }
 }
 
 // Every so-and-so-many days, at a certain time.
@@ -197,6 +215,15 @@ pub struct WeeksOfMonth {
     pub sub_schedule: DaysOfWeek,
 }
 
+// On certain days of certain months,
+// e.g. the 15th and 20th of February and March
+#[derive(Clone)]
+pub struct CertainMonths {
+    pub months: Vec<i32>, // 1-12 for Jan-Dec
+    pub days: Vec<i32>,   // 1-31 for days of month
+    pub time: NaiveTime,
+}
+
 impl WeeksOfMonth {
     pub(crate) fn most_recent_due_date(&self) -> DateTime<Utc> {
         let now = Utc::now();
@@ -233,6 +260,48 @@ impl WeeksOfMonth {
                 return check_date
                     .date_naive()
                     .and_time(self.sub_schedule.time)
+                    .and_local_timezone(Local)
+                    .unwrap()
+                    .with_timezone(&Utc);
+            }
+        }
+        
+        now
+    }
+}
+
+impl CertainMonths {
+    pub(crate) fn most_recent_due_date(&self) -> DateTime<Utc> {
+        let now = Utc::now();
+        let local_now: DateTime<Local> = now.into();
+        let current_month = local_now.month() as i32;
+        let current_day = local_now.day() as i32;
+        
+        // Check if today is a matching day in a matching month and time has passed
+        if self.months.contains(&current_month) && self.days.contains(&current_day) {
+            let today_at_time = local_now
+                .date_naive()
+                .and_time(self.time)
+                .and_local_timezone(Local)
+                .unwrap()
+                .with_timezone(&Utc);
+            
+            if today_at_time <= now {
+                return today_at_time;
+            }
+        }
+        
+        // Look backwards through days to find the most recent matching date
+        // Look back up to 365 days since months might be spread throughout the year
+        for days_back in 1..=365 {
+            let check_date = local_now - chrono::Duration::days(days_back as i64);
+            let check_month = check_date.month() as i32;
+            let check_day = check_date.day() as i32;
+            
+            if self.months.contains(&check_month) && self.days.contains(&check_day) {
+                return check_date
+                    .date_naive()
+                    .and_time(self.time)
                     .and_local_timezone(Local)
                     .unwrap()
                     .with_timezone(&Utc);

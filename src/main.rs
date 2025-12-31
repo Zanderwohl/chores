@@ -21,6 +21,11 @@ struct Args {
     /// Overrides the TZ environment variable
     #[arg(long)]
     tz: Option<String>,
+
+    /// Enable touch mode (use larger buttons instead of links)
+    /// Overrides the TOUCH environment variable
+    #[arg(short = 't', long)]
+    touch: bool,
 }
 
 /// Load a config value from sources in priority order:
@@ -54,6 +59,18 @@ async fn main() -> Result<()> {
     let tz_str = get_config("TZ", args.tz, &dotenv, "UTC");
     config::init_timezone(&tz_str);
     println!("Using timezone: {}", config::get_timezone());
+
+    // Get touch mode: CLI flag > env var > .env > false
+    let touch_enabled = if args.touch {
+        true
+    } else {
+        let touch_str = get_config("TOUCH", None, &dotenv, "false");
+        touch_str.eq_ignore_ascii_case("true") || touch_str == "1"
+    };
+    config::init_touch_mode(touch_enabled);
+    if touch_enabled {
+        println!("Touch mode: enabled");
+    }
 
     // Get database URL: env var > .env > default
     let database_url = get_config("DATABASE_URL", None, &dotenv, "sqlite:chores.db?mode=rwc");

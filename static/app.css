@@ -110,6 +110,13 @@ body {
     flex-wrap: wrap;
 }
 
+/* Months Grid (for CertainMonths schedule) */
+.months-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
 /* ============================================================================
    Tasks Page
    ============================================================================ */
@@ -364,9 +371,15 @@ body {
 .task-card-due,
 .task-card-alerting,
 .task-card-normal,
-.task-card-completed {
+.task-card-completed,
+.task-card-event,
+.task-card-inactive {
     background: #fff;
     border-color: #000;
+}
+
+.task-card-inactive {
+    opacity: 0.6;
 }
 
 /* Empty state */
@@ -687,4 +700,86 @@ body {
     text-align: center;
     margin-bottom: 12px;
     font-size: 13px;
+}
+
+/* Touch mode button styles */
+.task-name-btn {
+    flex: 1;
+    text-align: left;
+    min-height: 44px;
+    padding: 8px 12px;
+}
+
+.task-name-btn .task-name {
+    font-size: inherit;
+}
+
+.homepage-footer .btn {
+    min-height: 44px;
+    padding: 8px 16px;
+    margin-top: 8px;
+}
+
+/* Task card title button in touch mode */
+.task-card-title-btn {
+    width: 100%;
+    text-align: left;
+    min-height: 44px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.task-card-title-btn .task-card-title {
+    font-size: inherit;
+    font-weight: bold;
+}
+
+/* Inactive task label */
+.task-inactive-label {
+    color: #999;
+    font-weight: normal;
+    font-size: 0.85em;
+}
+
+/* Task show page actions */
+.task-show-actions {
+    display: flex;
+    gap: 8px;
+}
+
+
+/* Confirm modal (using HTML dialog) */
+.confirm-modal {
+    border: 2px solid #000;
+    padding: 0;
+    max-width: 400px;
+    background: #fff;
+}
+
+.confirm-modal::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-modal-content {
+    padding: 20px;
+}
+
+.confirm-modal-content h3 {
+    margin: 0 0 12px 0;
+}
+
+.confirm-modal-content p {
+    margin: 0 0 8px 0;
+}
+
+.confirm-modal-hint {
+    color: #666;
+    font-size: 14px;
+}
+
+.confirm-modal-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
 }

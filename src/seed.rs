@@ -15,7 +15,7 @@ use chrono::NaiveTime;
 use serde::Deserialize;
 use std::fs;
 
-use crate::schedule::{DaysOfWeek, Monthwise, NDays, NWeeks, ScheduleKind, WeeksOfMonth};
+use crate::schedule::{CertainMonths, DaysOfWeek, Monthwise, NDays, NWeeks, Once, ScheduleKind, WeeksOfMonth};
 use crate::tasks::DemoTask;
 
 #[derive(Debug, Deserialize)]
@@ -52,9 +52,21 @@ struct SeedTask {
     #[serde(default)]
     weeks: Option<Vec<i32>>,
     
+    // CertainMonths fields
+    #[serde(default)]
+    months: Option<Vec<i32>>,
+    
     // Alerting time in minutes (default: 1440 = 24 hours)
     #[serde(default)]
     alerting_time: Option<i64>,
+    
+    // Whether the task needs to be marked as complete (default: true)
+    #[serde(default = "default_completeable")]
+    completeable: bool,
+}
+
+fn default_completeable() -> bool {
+    true
 }
 
 impl SeedTask {
@@ -68,6 +80,7 @@ impl SeedTask {
             "n_weeks" => ScheduleKind::NWeeks,
             "monthwise" => ScheduleKind::Monthwise,
             "weeks_of_month" => ScheduleKind::WeeksOfMonth,
+            "certain_months" => ScheduleKind::CertainMonths,
             _ => ScheduleKind::NDays,
         };
         
@@ -93,6 +106,12 @@ impl SeedTask {
             sub_schedule: days_of_week,
         };
         
+        let certain_months = CertainMonths {
+            months: self.months.clone().unwrap_or_else(|| vec![1]),
+            days: self.days_of_month.clone().unwrap_or_else(|| vec![1]),
+            time,
+        };
+        
         DemoTask {
             id: String::new(), // Will be assigned by database
             name: self.name.clone(),
@@ -102,7 +121,12 @@ impl SeedTask {
             n_weeks,
             monthwise,
             weeks_of_month,
+            certain_months,
+            once: Once { datetime: chrono::Utc::now() },
             alerting_time: self.alerting_time.unwrap_or(1440), // Default 24 hours
+            completeable: self.completeable,
+            created_at: None,
+            deleted_at: None,
         }
     }
     
@@ -152,6 +176,9 @@ async fn main() -> Result<()> {
     // Initialize timezone (used by tasks module)
     let tz_str = get_config("TZ", &dotenv, "UTC");
     config::init_timezone(&tz_str);
+    
+    // Initialize touch mode (not really needed for seed, but required by tasks module)
+    config::init_touch_mode(false);
     
     // Connect to database
     let database_url = get_config("DATABASE_URL", &dotenv, "sqlite:chores.db?mode=rwc");
