@@ -85,6 +85,10 @@ async fn main() -> Result<()> {
     // build our application with a single route
     let app = Router::new()
         .route("/", get(tasks::homepage))
+        .route("/daily", get(tasks::daily_today))
+        .route("/daily/{year}/{month}/{day}", get(tasks::daily_page))
+        .route("/calendar", get(tasks::calendar_today))
+        .route("/calendar/{year}/{month}", get(tasks::calendar_page))
         .nest("/storybook", storybook::router())
         .nest("/tasks", tasks::router())
         .with_state(pool)

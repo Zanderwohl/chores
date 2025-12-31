@@ -519,6 +519,15 @@ body {
     border-bottom: 2px solid #000;
 }
 
+.calendar-title-link {
+    color: #000;
+    text-decoration: none;
+}
+
+.calendar-title-link:hover {
+    text-decoration: underline;
+}
+
 .calendar-grid {
     padding: 8px;
 }
@@ -782,4 +791,251 @@ body {
     gap: 8px;
     justify-content: flex-end;
     margin-top: 16px;
+}
+
+/* Page Header with title and action button */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.page-header h1 {
+    margin: 0;
+}
+
+/* Daily Page Styles */
+.daily-page {
+    max-width: 800px;
+}
+
+.daily-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.daily-date-selectors {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+}
+
+.daily-date-selectors select {
+    font-size: 16px;
+    padding: 6px 10px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.daily-year-select {
+    min-width: 80px;
+}
+
+.daily-month-select {
+    min-width: 120px;
+}
+
+.daily-day-select {
+    min-width: 60px;
+}
+
+.daily-date-display {
+    margin-bottom: 20px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 12px;
+}
+
+.daily-date-display h2 {
+    margin: 0;
+    font-size: 24px;
+}
+
+.daily-today-badge {
+    color: #666;
+    font-weight: normal;
+    font-size: 0.8em;
+}
+
+.daily-events {
+    margin-bottom: 24px;
+}
+
+.daily-event {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid #ccc;
+}
+
+.daily-event:last-child {
+    border-bottom: none;
+}
+
+.daily-event-time {
+    font-family: monospace;
+    font-size: 18px;
+    color: #666;
+    min-width: 60px;
+}
+
+.daily-event-name {
+    font-size: 18px;
+}
+
+a.daily-event-name {
+    color: #000;
+    text-decoration: underline;
+}
+
+a.daily-event-name:hover {
+    text-decoration: none;
+}
+
+.daily-empty {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.daily-footer {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.daily-back-link {
+    margin-bottom: 12px;
+}
+
+.daily-back-link a {
+    color: #000;
+    text-decoration: none;
+}
+
+.daily-back-link a:hover {
+    text-decoration: underline;
+}
+
+/* Page header buttons group */
+.page-header-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+/* Calendar Page Styles */
+.calendar-page {
+    /* No max-width constraint - calendar needs full width */
+}
+
+.calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.calendar-date-selectors {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+}
+
+.calendar-date-selectors select {
+    font-size: 16px;
+    padding: 6px 10px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+.calendar-year-select {
+    min-width: 80px;
+}
+
+.calendar-month-select {
+    min-width: 120px;
+}
+
+.calendar-grid-container {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border: 2px solid #000;
+}
+
+.calendar-header-cell {
+    padding: 8px;
+    text-align: center;
+    font-weight: bold;
+    border-right: 1px solid #000;
+    border-bottom: 2px solid #000;
+}
+
+.calendar-header-cell:nth-child(7n) {
+    border-right: none;
+}
+
+.calendar-cell {
+    min-height: 100px;
+    padding: 4px;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
+}
+
+.calendar-cell:nth-child(7n) {
+    border-right: none;
+}
+
+.calendar-grid-container > .calendar-cell:nth-last-child(-n+7) {
+    border-bottom: none;
+}
+
+.calendar-cell-day-number {
+    display: inline-block;
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: #000;
+    text-decoration: none;
+}
+
+.calendar-cell-day-number:hover {
+    text-decoration: underline;
+}
+
+.calendar-cell-today .calendar-cell-day-number {
+    text-decoration: underline;
+}
+
+.calendar-cell-events {
+    font-size: 12px;
+}
+
+.calendar-cell-event {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 0;
+}
+
+.calendar-cell-event-time {
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.calendar-cell-event-name {
+    color: #000;
+    text-decoration: none;
+}
+
+.calendar-cell-event-name:hover {
+    text-decoration: underline;
+}
+
+.calendar-footer {
+    margin-top: 20px;
+    text-align: center;
 }

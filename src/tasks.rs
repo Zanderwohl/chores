@@ -439,7 +439,18 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
             }
             body {
                 div .homepage id="homepage" {
-                    h1 { "Chores" }
+                    div .page-header {
+                        h1 { "Chores" }
+                        div .page-header-buttons {
+                            @if is_touch_mode() {
+                                button .btn onclick="window.location.href='/daily'" { "Daily" }
+                                button .btn onclick="window.location.href='/calendar'" { "Calendar" }
+                            } @else {
+                                a .btn href="/daily" { "Daily" }
+                                a .btn href="/calendar" { "Calendar" }
+                            }
+                        }
+                    }
 
                     @if !due_tasks.is_empty() {
                         section .task-section {
@@ -533,6 +544,476 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
     Html(html.render().into_inner())
 }
 
+// Query params for daily date selection
+#[derive(Deserialize)]
+pub struct DailyQuery {
+    year: Option<i32>,
+    month: Option<u32>,
+    day: Option<u32>,
+}
+
+// GET /daily - Daily page with optional query params for date selection
+pub async fn daily_today(
+    State(pool): State<DbPool>,
+    Query(query): Query<DailyQuery>,
+) -> Html<String> {
+    let tz = get_timezone();
+    let now = Utc::now().with_timezone(&tz);
+    
+    // Use query params if provided, otherwise use today
+    let year = query.year.unwrap_or_else(|| now.year());
+    let month = query.month.unwrap_or_else(|| now.month());
+    let day = query.day.unwrap_or_else(|| now.day());
+    
+    daily_page_inner(&pool, year, month, day).await
+}
+
+// GET /daily/:year/:month/:day - Daily page for a specific date
+pub async fn daily_page(
+    State(pool): State<DbPool>,
+    Path((year, month, day)): Path<(i32, u32, u32)>,
+) -> Html<String> {
+    daily_page_inner(&pool, year, month, day).await
+}
+
+async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Html<String> {
+    use chrono::NaiveDate;
+    
+    // Validate and clamp the date
+    let date = NaiveDate::from_ymd_opt(year, month, day)
+        .unwrap_or_else(|| {
+            let tz = get_timezone();
+            Utc::now().with_timezone(&tz).date_naive()
+        });
+    
+    let year = date.year();
+    let month = date.month();
+    let day = date.day();
+    
+    // Get all tasks
+    let all_tasks: Vec<DemoTask> = db::get_all_tasks(pool).await.unwrap_or_default();
+    
+    // Filter tasks that are due on this date and get their times
+    let mut tasks_on_day: Vec<(&DemoTask, chrono::NaiveTime)> = all_tasks
+        .iter()
+        .filter(|task| !task.is_inactive() && is_due_on_date(task, date))
+        .map(|task| (task, get_due_time(task, date)))
+        .collect();
+    
+    // Sort by time
+    tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
+    
+    // Calculate previous and next day
+    let prev_date = date - Duration::days(1);
+    let next_date = date + Duration::days(1);
+    
+    let prev_url = format!("/daily/{}/{}/{}", prev_date.year(), prev_date.month(), prev_date.day());
+    let next_url = format!("/daily/{}/{}/{}", next_date.year(), next_date.month(), next_date.day());
+    
+    // Generate year options (current year +/- 5 years)
+    let current_year = Utc::now().year();
+    let year_options: String = ((current_year - 5)..=(current_year + 5))
+        .map(|y| {
+            let selected = if y == year { " selected" } else { "" };
+            format!(r#"<option value="{}"{}>{}</option>"#, y, selected, y)
+        })
+        .collect();
+    
+    // Generate month options
+    let month_names = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ];
+    let month_options: String = (1..=12)
+        .map(|m| {
+            let selected = if m == month { " selected" } else { "" };
+            format!(r#"<option value="{}"{}>{}</option>"#, m, selected, month_names[(m - 1) as usize])
+        })
+        .collect();
+    
+    // Calculate days in this month (accounting for leap years)
+    let days_in_month = days_in_month(year, month);
+    let day_options: String = (1..=days_in_month)
+        .map(|d| {
+            let selected = if d == day { " selected" } else { "" };
+            format!(r#"<option value="{}"{}>{}</option>"#, d, selected, d)
+        })
+        .collect();
+    
+    // Format the date for display
+    let tz = get_timezone();
+    let display_date = date.format("%A, %B %-d, %Y").to_string();
+    
+    // Check if this is today
+    let today = Utc::now().with_timezone(&tz).date_naive();
+    let is_today = date == today;
+    
+    // Build daily controls with HTMX attributes (as string since maud doesn't support custom attrs)
+    let controls_html = format!(
+        r##"<div class="daily-controls">
+            <button class="btn" hx-get="{prev_url}" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true">←</button>
+            <div class="daily-date-selectors">
+                <select class="daily-year-select" name="year" hx-get="/daily" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true" hx-include=".daily-date-selectors select">
+                    {year_options}
+                </select>
+                <select class="daily-month-select" name="month" hx-get="/daily" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true" hx-include=".daily-date-selectors select">
+                    {month_options}
+                </select>
+                <select class="daily-day-select" name="day" hx-get="/daily" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true" hx-include=".daily-date-selectors select">
+                    {day_options}
+                </select>
+            </div>
+            <button class="btn" hx-get="{next_url}" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true">→</button>
+        </div>"##,
+        prev_url = prev_url,
+        next_url = next_url,
+        year_options = year_options,
+        month_options = month_options,
+        day_options = day_options,
+    );
+    
+    // Build events list
+    let events_html: String = if tasks_on_day.is_empty() {
+        r#"<div class="daily-empty"><p>No events on this day</p></div>"#.to_string()
+    } else {
+        tasks_on_day.iter().map(|(task, time)| {
+            let time_str = time.format("%H:%M").to_string();
+            let task_url = format!("/tasks/{}", task.id);
+            if is_touch_mode() {
+                format!(
+                    r##"<div class="daily-event">
+                        <span class="daily-event-time">{}</span>
+                        <button class="btn daily-event-name" onclick="window.location.href='{}'">
+                            {}
+                        </button>
+                    </div>"##,
+                    time_str, task_url, task.name
+                )
+            } else {
+                format!(
+                    r##"<div class="daily-event">
+                        <span class="daily-event-time">{}</span>
+                        <a class="daily-event-name" href="{}">{}</a>
+                    </div>"##,
+                    time_str, task_url, task.name
+                )
+            }
+        }).collect()
+    };
+    
+    // Build footer with today button if not on today
+    let footer_html = if !is_today {
+        let today_url = format!("/daily/{}/{}/{}", today.year(), today.month(), today.day());
+        format!(
+            r##"<div class="daily-footer">
+                <button class="btn" hx-get="{}" hx-target="#daily-page" hx-swap="outerHTML" hx-push-url="true">Go to Today</button>
+            </div>"##,
+            today_url
+        )
+    } else {
+        String::new()
+    };
+    
+    // Build today badge
+    let today_badge = if is_today { r#"<span class="daily-today-badge"> (Today)</span>"# } else { "" };
+    
+    // Build home button
+    let home_button = if is_touch_mode() {
+        r#"<button class="btn" onclick="window.location.href='/'">Home</button>"#
+    } else {
+        r#"<a class="btn" href="/">Home</a>"#
+    };
+    
+    // Build back link to calendar
+    let calendar_url = format!("/calendar/{}/{}", year, month);
+    let back_link = if is_touch_mode() {
+        format!(r#"<button class="btn" onclick="window.location.href='{}'">← Calendar</button>"#, calendar_url)
+    } else {
+        format!(r#"<a href="{}">← Calendar</a>"#, calendar_url)
+    };
+    
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Daily - Chores</title>
+    <link rel="stylesheet" href="/static/system.css">
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+    <div class="daily-page" id="daily-page">
+        <div class="daily-back-link">{back_link}</div>
+        <div class="page-header">
+            <h1>Daily</h1>
+            {home_button}
+        </div>
+        {controls_html}
+        <div class="daily-date-display">
+            <h2>{display_date}{today_badge}</h2>
+        </div>
+        <div class="daily-events">
+            {events_html}
+        </div>
+        {footer_html}
+    </div>
+</body>
+</html>"##,
+        back_link = back_link,
+        home_button = home_button,
+        controls_html = controls_html,
+        display_date = display_date,
+        today_badge = today_badge,
+        events_html = events_html,
+        footer_html = footer_html,
+    );
+
+    Html(html)
+}
+
+// Helper function to calculate days in a month
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            // Leap year check
+            if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30, // Fallback
+    }
+}
+
+// Query params for calendar month selection
+#[derive(Deserialize)]
+pub struct CalendarQuery {
+    year: Option<i32>,
+    month: Option<u32>,
+}
+
+// GET /calendar - Calendar page with optional query params for month selection
+pub async fn calendar_today(
+    State(pool): State<DbPool>,
+    Query(query): Query<CalendarQuery>,
+) -> Html<String> {
+    let tz = get_timezone();
+    let now = Utc::now().with_timezone(&tz);
+    
+    // Use query params if provided, otherwise use current month
+    let year = query.year.unwrap_or_else(|| now.year());
+    let month = query.month.unwrap_or_else(|| now.month());
+    
+    calendar_page_inner(&pool, year, month).await
+}
+
+// GET /calendar/:year/:month - Calendar page for a specific month
+pub async fn calendar_page(
+    State(pool): State<DbPool>,
+    Path((year, month)): Path<(i32, u32)>,
+) -> Html<String> {
+    calendar_page_inner(&pool, year, month).await
+}
+
+async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<String> {
+    use chrono::{NaiveDate, Weekday};
+    
+    // Validate month
+    let month = month.clamp(1, 12);
+    
+    // Get all tasks
+    let all_tasks: Vec<DemoTask> = db::get_all_tasks(pool).await.unwrap_or_default();
+    
+    // Calculate previous and next month
+    let (prev_year, prev_month) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
+    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+    
+    let prev_url = format!("/calendar/{}/{}", prev_year, prev_month);
+    let next_url = format!("/calendar/{}/{}", next_year, next_month);
+    
+    // Generate year options (current year +/- 5 years)
+    let current_year = Utc::now().year();
+    let year_options: String = ((current_year - 5)..=(current_year + 5))
+        .map(|y| {
+            let selected = if y == year { " selected" } else { "" };
+            format!(r#"<option value="{}"{}>{}</option>"#, y, selected, y)
+        })
+        .collect();
+    
+    // Generate month options
+    let month_names = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ];
+    let month_options: String = (1..=12)
+        .map(|m| {
+            let selected = if m == month { " selected" } else { "" };
+            format!(r#"<option value="{}"{}>{}</option>"#, m, selected, month_names[(m - 1) as usize])
+        })
+        .collect();
+    
+    // Get timezone and today
+    let tz = get_timezone();
+    let today = Utc::now().with_timezone(&tz).date_naive();
+    let is_current_month = today.year() == year && today.month() == month;
+    
+    // Build calendar controls
+    let controls_html = format!(
+        r##"<div class="calendar-controls">
+            <button class="btn" hx-get="{prev_url}" hx-target="#calendar-page" hx-swap="outerHTML" hx-push-url="true">←</button>
+            <div class="calendar-date-selectors">
+                <select class="calendar-year-select" name="year" hx-get="/calendar" hx-target="#calendar-page" hx-swap="outerHTML" hx-push-url="true" hx-include=".calendar-date-selectors select">
+                    {year_options}
+                </select>
+                <select class="calendar-month-select" name="month" hx-get="/calendar" hx-target="#calendar-page" hx-swap="outerHTML" hx-push-url="true" hx-include=".calendar-date-selectors select">
+                    {month_options}
+                </select>
+            </div>
+            <button class="btn" hx-get="{next_url}" hx-target="#calendar-page" hx-swap="outerHTML" hx-push-url="true">→</button>
+        </div>"##,
+        prev_url = prev_url,
+        next_url = next_url,
+        year_options = year_options,
+        month_options = month_options,
+    );
+    
+    // Build calendar grid
+    let first_day = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let days_in_this_month = days_in_month(year, month);
+    let first_weekday = first_day.weekday();
+    
+    // Calculate offset (Sunday = 0)
+    let start_offset = match first_weekday {
+        Weekday::Sun => 0,
+        Weekday::Mon => 1,
+        Weekday::Tue => 2,
+        Weekday::Wed => 3,
+        Weekday::Thu => 4,
+        Weekday::Fri => 5,
+        Weekday::Sat => 6,
+    };
+    
+    // Build all cells (header + day cells) in a flat grid
+    let mut cells = String::new();
+    
+    // Header cells
+    cells.push_str(r#"<div class="calendar-header-cell">Sun</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Mon</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Tue</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Wed</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Thu</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Fri</div>"#);
+    cells.push_str(r#"<div class="calendar-header-cell">Sat</div>"#);
+    
+    // Empty cells before first day
+    for _ in 0..start_offset {
+        cells.push_str(r#"<div class="calendar-cell"></div>"#);
+    }
+    
+    // Day cells
+    for day in 1..=days_in_this_month {
+        let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
+        let is_today = date == today;
+        
+        // Get tasks due on this day, sorted by time
+        let mut tasks_on_day: Vec<(&DemoTask, chrono::NaiveTime)> = all_tasks
+            .iter()
+            .filter(|task| !task.is_inactive() && is_due_on_date(task, date))
+            .map(|task| (task, get_due_time(task, date)))
+            .collect();
+        tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
+        
+        let cell_class = if is_today { "calendar-cell calendar-cell-today" } else { "calendar-cell" };
+        
+        let day_url = format!("/daily/{}/{}/{}", year, month, day);
+        
+        // Build task list for the cell (show ALL tasks)
+        let tasks_html: String = tasks_on_day.iter()
+            .map(|(task, time)| {
+                let time_str = time.format("%H:%M").to_string();
+                let task_url = format!("/tasks/{}", task.id);
+                format!(
+                    r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <a href="{}" class="calendar-cell-event-name">{}</a></div>"#,
+                    time_str, task_url, task.name
+                )
+            })
+            .collect();
+        
+        cells.push_str(&format!(
+            r##"<div class="{}">
+                <a href="{}" class="calendar-cell-day-number">{}</a>
+                <div class="calendar-cell-events">{}</div>
+            </div>"##,
+            cell_class, day_url, day, tasks_html
+        ));
+    }
+    
+    // Empty cells after last day to complete the grid
+    let total_cells = start_offset + days_in_this_month;
+    let remaining = if total_cells % 7 == 0 { 0 } else { 7 - (total_cells % 7) };
+    for _ in 0..remaining {
+        cells.push_str(r#"<div class="calendar-cell"></div>"#);
+    }
+    
+    // Build footer with today button if not on current month
+    let footer_html = if !is_current_month {
+        let today_url = format!("/calendar/{}/{}", today.year(), today.month());
+        format!(
+            r##"<div class="calendar-footer">
+                <button class="btn" hx-get="{}" hx-target="#calendar-page" hx-swap="outerHTML" hx-push-url="true">Go to Current Month</button>
+            </div>"##,
+            today_url
+        )
+    } else {
+        String::new()
+    };
+    
+    // Build home button
+    let home_button = if is_touch_mode() {
+        r#"<button class="btn" onclick="window.location.href='/'">Home</button>"#
+    } else {
+        r#"<a class="btn" href="/">Home</a>"#
+    };
+    
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Calendar - Chores</title>
+    <link rel="stylesheet" href="/static/system.css">
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+    <div class="calendar-page" id="calendar-page">
+        <div class="page-header">
+            <h1>Calendar</h1>
+            {home_button}
+        </div>
+        {controls_html}
+        <div class="calendar-grid-container">
+            {cells}
+        </div>
+        {footer_html}
+    </div>
+</body>
+</html>"##,
+        home_button = home_button,
+        controls_html = controls_html,
+        cells = cells,
+        footer_html = footer_html,
+    );
+
+    Html(html)
+}
+
 fn render_task_card(task: &DemoTask, status: &str) -> String {
     let status_class = format!("task-card task-card-{}", status);
     let due_str = task.time_as_readable_string();
@@ -598,8 +1079,6 @@ fn render_task_card(task: &DemoTask, status: &str) -> String {
 }
 
 fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) -> String {
-    use chrono::Datelike;
-
     let schedule_type_label = match task.schedule_kind {
         ScheduleKind::NDays => format!("Every {} day(s)", task.n_days.days),
         ScheduleKind::NWeeks => {
@@ -930,12 +1409,13 @@ fn render_calendar(task: &DemoTask, completions: &[db::CompletionRecord]) -> Str
     }
     cells.push_str("</div>");
 
+    let calendar_url = format!("/calendar/{}/{}", year, month);
     format!(
         r#"<div class="calendar">
-            <div class="calendar-title">{} {}</div>
+            <div class="calendar-title"><a href="{}" class="calendar-title-link">{} {}</a></div>
             <div class="calendar-grid">{}</div>
         </div>"#,
-        month_name, year, cells
+        calendar_url, month_name, year, cells
     )
 }
 
@@ -1005,8 +1485,6 @@ fn get_due_time(task: &DemoTask, _date: chrono::NaiveDate) -> chrono::NaiveTime 
 }
 
 fn find_next_due_after(task: &DemoTask, after: DateTime<Utc>) -> DateTime<Utc> {
-    use chrono::Datelike;
-
     let tz = get_timezone();
     let tz_after = after.with_timezone(&tz);
 
