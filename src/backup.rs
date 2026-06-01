@@ -8,6 +8,7 @@
 
 mod config;
 mod db;
+mod migrate;
 mod schedule;
 mod tasks;
 
@@ -62,9 +63,13 @@ async fn main() -> Result<()> {
     println!("Connecting to source database...");
     let source_pool = db::init_db(&source_url).await?;
 
-    // Create and connect to target database (init_db creates tables)
+    // Create and connect to target database
     println!("Creating target database...");
     let target_pool = db::init_db(&target_url).await?;
+
+    // Run migrations on target database to create tables
+    let migrations_path = migrate::default_migrations_path();
+    migrate::run_up(&target_pool, &migrations_path, None).await?;
 
     // Copy schedules
     println!("Copying schedules...");

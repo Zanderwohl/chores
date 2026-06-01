@@ -1,11 +1,12 @@
 //! Seed binary for populating the chores database with initial tasks.
-//! 
+//!
 //! Usage: cargo run --bin seed
-//! 
+//!
 //! Reads from seed.toml in the project root and inserts tasks into the database.
 
 mod config;
 mod db;
+mod migrate;
 mod schedule;
 mod tasks;
 
@@ -183,6 +184,13 @@ async fn main() -> Result<()> {
     let database_url = get_config("DATABASE_URL", &dotenv, "sqlite:chores.db?mode=rwc");
     let pool = db::init_db(&database_url).await?;
     println!("📦 Connected to database: {}", database_url);
+
+    // Run migrations
+    let migrations_path = migrate::default_migrations_path();
+    let count = migrate::run_up(&pool, &migrations_path, None).await?;
+    if count > 0 {
+        println!("📦 Applied {} migration(s)", count);
+    }
     
     // Read seed file
     let seed_content = fs::read_to_string("seed.toml")?;

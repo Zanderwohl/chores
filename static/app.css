@@ -808,6 +808,7 @@ body {
 /* Daily Page Styles */
 .daily-page {
     max-width: 800px;
+    margin: 0 auto;
 }
 
 .daily-controls {

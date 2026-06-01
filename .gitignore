@@ -6,3 +6,6 @@
 .idea
 
 chores.db
+*.db
+
+/logs

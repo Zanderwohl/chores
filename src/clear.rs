@@ -1,11 +1,12 @@
 //! Clear binary for resetting the chores database.
-//! 
+//!
 //! Usage: cargo run --bin clear
-//! 
+//!
 //! Deletes all entries from all database tables.
 
 mod config;
 mod db;
+mod migrate;
 mod schedule;
 mod tasks;
 
@@ -26,10 +27,17 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "sqlite:chores.db?mode=rwc".to_string());
     
     println!("Connecting to database: {}", database_url);
-    
+
     // Initialize database connection
     let pool = db::init_db(&database_url).await?;
-    
+
+    // Run migrations to ensure tables exist
+    let migrations_path = migrate::default_migrations_path();
+    let count = migrate::run_up(&pool, &migrations_path, None).await?;
+    if count > 0 {
+        println!("Applied {} migration(s)", count);
+    }
+
     // Clear all tables
     println!("Clearing completions table...");
     sqlx::query("DELETE FROM completions")

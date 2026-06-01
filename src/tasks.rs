@@ -9,6 +9,7 @@ use hypertext::{prelude::*, Raw};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use tracing::{error, info};
 
 use crate::config::{get_timezone, is_touch_mode};
 use crate::db::{self, DbPool};
@@ -285,8 +286,9 @@ pub fn router() -> Router<DbPool> {
 // POST /tasks/:id/complete - Mark a task as complete
 async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
     // Add completion record
-    if let Err(e) = db::add_completion(&pool, &id).await {
-        eprintln!("Error adding completion: {}", e);
+    match db::add_completion(&pool, &id).await {
+        Ok(_) => info!(task_id = %id, "Task completed"),
+        Err(e) => error!(task_id = %id, error = %e, "Error adding completion"),
     }
 
     // Re-render the entire homepage
@@ -296,8 +298,9 @@ async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Ht
 // POST /tasks/:id/delete - Mark a task as deleted (set deleted_at)
 async fn delete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
     if let Ok(task_id) = id.parse::<i64>() {
-        if let Err(e) = db::set_task_deleted_at(&pool, task_id, Some(Utc::now())).await {
-            eprintln!("Error deleting task: {}", e);
+        match db::set_task_deleted_at(&pool, task_id, Some(Utc::now())).await {
+            Ok(_) => info!(task_id = %id, "Task deleted"),
+            Err(e) => error!(task_id = %id, error = %e, "Error deleting task"),
         }
     }
 
@@ -308,8 +311,9 @@ async fn delete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html
 // POST /tasks/:id/restore - Restore a deleted task (clear deleted_at)
 async fn restore_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
     if let Ok(task_id) = id.parse::<i64>() {
-        if let Err(e) = db::set_task_deleted_at(&pool, task_id, None).await {
-            eprintln!("Error restoring task: {}", e);
+        match db::set_task_deleted_at(&pool, task_id, None).await {
+            Ok(_) => info!(task_id = %id, "Task restored"),
+            Err(e) => error!(task_id = %id, error = %e, "Error restoring task"),
         }
     }
 
@@ -349,8 +353,9 @@ async fn delete_completion(
     State(pool): State<DbPool>,
     Path((task_id, completion_id)): Path<(String, i64)>,
 ) -> Html<String> {
-    if let Err(e) = db::delete_completion(&pool, completion_id).await {
-        eprintln!("Error deleting completion: {}", e);
+    match db::delete_completion(&pool, completion_id).await {
+        Ok(_) => info!(task_id = %task_id, completion_id = %completion_id, "Completion deleted"),
+        Err(e) => error!(task_id = %task_id, completion_id = %completion_id, error = %e, "Error deleting completion"),
     }
 
     // Re-render the task show page
@@ -2092,8 +2097,14 @@ async fn save_task(
         if let Ok(task_id) = id.parse::<i64>() {
             if let Ok(Some(existing_task)) = db::get_task(&pool, task_id).await {
                 let updated_task = form.to_demo_task(&id, &existing_task);
-                if let Ok(_) = db::save_task(&pool, &updated_task).await {
-                    return Html(success_response);
+                match db::save_task(&pool, &updated_task).await {
+                    Ok(_) => {
+                        info!(task_id = %id, name = %updated_task.name, "Task updated");
+                        return Html(success_response);
+                    }
+                    Err(e) => {
+                        error!(task_id = %id, error = %e, "Error saving task");
+                    }
                 }
             }
         }
@@ -2155,11 +2166,13 @@ async fn create_task(State(pool): State<DbPool>, Form(form): Form<TaskForm>) -> 
 
     // Save to database
     match db::save_task(&pool, &new_task).await {
-        Ok(_) => {
+        Ok(task_id) => {
+            info!(task_id = %task_id, name = %new_task.name, "Task created");
             // Return empty modal container (closes the modal) and trigger list refresh
             Html(r##"<div hx-get="/tasks/list" hx-trigger="load" hx-target="#task-list" hx-swap="innerHTML"></div>"##.to_string())
         }
         Err(e) => {
+            error!(name = %new_task.name, error = %e, "Error creating task");
             Html(format!(
                 "<div class=\"modal-overlay\"><div class=\"window\"><div class=\"window-pane\">Error creating task: {}</div></div></div>",
                 e
