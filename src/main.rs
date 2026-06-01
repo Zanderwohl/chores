@@ -2,7 +2,6 @@ mod config;
 mod db;
 mod schedule;
 mod storybook;
-mod task;
 mod tasks;
 
 use axum::{routing::get, Router};
@@ -26,6 +25,11 @@ struct Args {
     /// Overrides the TOUCH environment variable
     #[arg(short = 't', long)]
     touch: bool,
+
+    /// Port to bind the server to (default: 3000)
+    /// Overrides the PORT environment variable
+    #[arg(short = 'p', long)]
+    port: Option<u16>,
 }
 
 /// Load a config value from sources in priority order:
@@ -95,8 +99,17 @@ async fn main() -> Result<()> {
         .with_state(pool)
         .nest_service("/static", get_service(static_dir));
 
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    // Get port: CLI flag > env var > .env > 3000
+    let port: u16 = args.port.unwrap_or_else(|| {
+        get_config("PORT", None, &dotenv, "3000")
+            .parse()
+            .unwrap_or(3000)
+    });
+
+    // run our app with hyper, listening globally on the configured port
+    let bind_addr = format!("0.0.0.0:{}", port);
+    println!("Listening on http://{}", bind_addr);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

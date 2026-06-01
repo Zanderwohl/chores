@@ -435,7 +435,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                 title { "Chores" }
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
-                script src="https://unpkg.com/htmx.org@2.0.4" {}
+                script src="/static/htmx.min.js" {}
             }
             body {
                 div .homepage id="homepage" {
@@ -781,7 +781,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     <title>Daily - Chores</title>
     <link rel="stylesheet" href="/static/system.css">
     <link rel="stylesheet" href="/static/app.css">
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="/static/htmx.min.js"></script>
 </head>
 <body>
     <div class="daily-page" id="daily-page">
@@ -1069,7 +1069,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     <title>Calendar - Chores</title>
     <link rel="stylesheet" href="/static/system.css">
     <link rel="stylesheet" href="/static/app.css">
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="/static/htmx.min.js"></script>
 </head>
 <body>
     <div class="calendar-page" id="calendar-page">
@@ -1291,7 +1291,7 @@ fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) 
                 title { (task.name) " - Chores" }
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
-                script src="https://unpkg.com/htmx.org@2.0.4" {}
+                script src="/static/htmx.min.js" {}
             }
             body {
                 div .task-show-page id="task-show-page" {
@@ -1658,7 +1658,7 @@ async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>)
                 title { "Tasks - Chores" }
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
-                script src="https://unpkg.com/htmx.org@2.0.4" {}
+                script src="/static/htmx.min.js" {}
             }
             body {
                 div .tasks-page {
@@ -2472,7 +2472,6 @@ async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64) -
     // Ensure valid pagination values
     let per_page = per_page.max(1).min(100);
     let page = page.max(1);
-    let offset = (page - 1) * per_page;
 
     // Get total count for pagination
     let total_count = db::get_task_count(pool).await.unwrap_or(0);
@@ -2491,15 +2490,19 @@ async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64) -
     let total_pages = (total_count + per_page - 1) / per_page;
     let page = page.min(total_pages); // Clamp page to max
 
-    // Fetch paginated tasks
-    let mut tasks: Vec<DemoTask> = db::get_tasks_paginated(pool, sort, offset, per_page)
-        .await
-        .unwrap_or_default();
-
-    // Sort tasks in Rust for "due" since it's calculated, not stored
-    if sort == "due" {
-        tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
-    }
+    // Fetch tasks - for "due" sort we need all tasks to sort globally before paginating
+    let tasks: Vec<DemoTask> = if sort == "due" {
+        let mut all_tasks = db::get_all_tasks(pool).await.unwrap_or_default();
+        all_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
+        let start = ((page - 1) * per_page) as usize;
+        let end = (start + per_page as usize).min(all_tasks.len());
+        all_tasks.into_iter().skip(start).take(end - start).collect()
+    } else {
+        let offset = (page - 1) * per_page;
+        db::get_tasks_paginated(pool, sort, offset, per_page)
+            .await
+            .unwrap_or_default()
+    };
 
     let items: Vec<String> = tasks.iter().map(render_task_list_item).collect();
     let pagination_html = render_pagination(page, total_pages, per_page, sort, total_count);

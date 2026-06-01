@@ -47,6 +47,7 @@ Environment variables can be set in the bash environment, in the .env file, or a
 | Touch Mode | t | TOUCH | If present/true, makes links into large buttons | N/A |
 | Time Zone | tz | TZ | Locale string for the sever and user's time zone | America/Chicago |
 | Database File | db | DATABASE_URL | The file path to place/use the sqlite file. | chores.db |
+| Port | p | PORT | The port to bind the server to |
 
 ## Credits
 

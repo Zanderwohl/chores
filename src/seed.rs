@@ -7,7 +7,6 @@
 mod config;
 mod db;
 mod schedule;
-mod task;
 mod tasks;
 
 use anyhow::Result;
