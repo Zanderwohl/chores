@@ -7,7 +7,7 @@ mod storybook;
 mod tasks;
 
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{routing::{get, post}, Router};
 use axum::routing::get_service;
 use clap::Parser;
 use dotenvy::{EnvLoader, EnvMap};
@@ -122,8 +122,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Create photos folder and sync photos
+    // Create photos and thumbnails folders, sync photos
     fs::create_dir_all("photos")?;
+    fs::create_dir_all("thumbnails")?;
     let photos_path = Path::new("photos");
     photos::sync_photos(&pool, photos_path).await?;
 
@@ -134,7 +135,12 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(tasks::homepage))
         .route("/idle", get(photos::idle_page))
+        .route("/photos", get(photos::photos_index))
+        .route("/photos/list", get(photos::photos_list))
         .route("/photos/{*path}", get(photos::serve_photo))
+        .route("/photo/{id}/edit", get(photos::photo_edit))
+        .route("/photo/{id}/toggle-active", post(photos::toggle_active))
+        .route("/thumbnails/{*path}", get(photos::serve_thumbnail))
         .route("/daily", get(tasks::daily_today))
         .route("/daily/{year}/{month}/{day}", get(tasks::daily_page))
         .route("/calendar", get(tasks::calendar_today))
