@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod migrate;
+mod photos;
 mod schedule;
 mod storybook;
 mod tasks;
@@ -11,6 +12,7 @@ use axum::routing::get_service;
 use clap::Parser;
 use dotenvy::{EnvLoader, EnvMap};
 use std::fs;
+use std::path::Path;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
@@ -120,12 +122,19 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Create photos folder and sync photos
+    fs::create_dir_all("photos")?;
+    let photos_path = Path::new("photos");
+    photos::sync_photos(&pool, photos_path).await?;
+
     fs::create_dir_all("static")?;
     let static_dir = ServeDir::new("static");
 
     // build our application with a single route
     let app = Router::new()
         .route("/", get(tasks::homepage))
+        .route("/idle", get(photos::idle_page))
+        .route("/photos/{*path}", get(photos::serve_photo))
         .route("/daily", get(tasks::daily_today))
         .route("/daily/{year}/{month}/{day}", get(tasks::daily_page))
         .route("/calendar", get(tasks::calendar_today))

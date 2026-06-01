@@ -443,6 +443,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                 script src="/static/htmx.min.js" {}
             }
             body {
+                a .idle-link href="/idle" { "idle" }
                 div .homepage id="homepage" {
                     div .page-header {
                         h1 { "Chores" }

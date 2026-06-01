@@ -1126,3 +1126,24 @@ a.daily-event-name:hover {
         padding: 4px 2px;
     }
 }
+
+/* ============================================================================
+   Idle Screensaver
+   ============================================================================ */
+
+.idle-link {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 9999;
+    color: #000;
+    font-size: 14px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
+#idle-content {
+    position: fixed;
+    inset: 0;
+    background: repeating-conic-gradient(#000 0% 25%, #f0f 25% 50%) 0 0 / 80px 80px;
+    cursor: pointer;
+}
