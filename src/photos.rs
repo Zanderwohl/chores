@@ -642,12 +642,6 @@ pub async fn idle_page(
         None => "null".to_string(),
     };
 
-    // Sleep time in milliseconds (or null for indefinite)
-    let sleep_time_js = match user_settings.sleep_time {
-        Some(minutes) => format!("{}", minutes as u32 * 60 * 1000),
-        None => "null".to_string(),
-    };
-
     let html = maud! {
         !DOCTYPE
         html {
@@ -659,8 +653,8 @@ pub async fn idle_page(
                 link rel="stylesheet" href="/static/app.css";
                 script {
                     (Raw::dangerously_create(&format!(
-                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};\nwindow.SLIDESHOW_SLEEP_TIME = {};\nwindow.SLIDESHOW_FILTER_TAGS = {};",
-                        photos_json, return_url, display_time_js, sleep_time_js,
+                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};\nwindow.SLIDESHOW_FILTER_TAGS = {};",
+                        photos_json, return_url, display_time_js,
                         serde_json::to_string(&filter_tags).unwrap_or_else(|_| "[]".to_string())
                     )))
                 }

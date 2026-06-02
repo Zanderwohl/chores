@@ -14,7 +14,7 @@ use clap::Parser;
 use dotenvy::{EnvLoader, EnvMap};
 use std::fs;
 use std::path::Path;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -159,6 +159,7 @@ async fn main() -> Result<()> {
         .nest("/tasks", tasks::router())
         .with_state(pool)
         .nest_service("/static", get_service(static_dir))
+        .route_service("/favicon.ico", ServeFile::new("static/favicon.ico"))
         .layer(TraceLayer::new_for_http());
 
     // Get port: CLI flag > env var > .env > 3000

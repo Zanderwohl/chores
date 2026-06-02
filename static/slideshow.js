@@ -6,7 +6,6 @@
     const DISPLAY_DURATION = window.SLIDESHOW_DISPLAY_TIME || 8000;
     const TRANSITION_DURATION = 1500;        // ms for auto-advance crossfade
     const MANUAL_TRANSITION_DURATION = 1000; // ms for arrow key transitions
-    const SLEEP_TIME = window.SLIDESHOW_SLEEP_TIME || null; // null = indefinite
     
     // State
     let currentIndex = 0;
@@ -23,7 +22,6 @@
     let transitionAnimationId = null;
     let isTransitioning = false;
     let transitionTargetIndex = null;
-    let sleepTimerId = null;
     
     // Blend function - swappable closure for different transition effects
     const blendFn = function(mainCtx, currentCanvas, nextCanvas, progress) {
@@ -37,7 +35,10 @@
     
     function init() {
         const container = document.getElementById('idle-content');
-        if (!container) return;
+        if (!container) {
+            console.warn('[slideshow] stopping: #idle-content element not found');
+            return;
+        }
         
         container.style.cssText = `
             position: fixed;
@@ -50,6 +51,7 @@
         `;
 
         if (photos.length === 0) {
+            console.warn('[slideshow] no photos available (filter tags: %o)', window.SLIDESHOW_FILTER_TAGS || []);
             var filterTags = window.SLIDESHOW_FILTER_TAGS || [];
             var msg = document.createElement('div');
             msg.style.cssText = 'color:#fff;font-family:sans-serif;font-size:18px;text-align:center;';
@@ -61,7 +63,10 @@
             msg.textContent = text;
             container.appendChild(msg);
             document.addEventListener('keydown', handleKeydown);
-            container.addEventListener('click', goHome);
+            container.addEventListener('click', function() {
+                console.log('[slideshow] stopping: click on empty slideshow (no photos)');
+                goHome();
+            });
             return;
         }
 
@@ -90,17 +95,16 @@
         
         window.addEventListener('resize', handleResize);
         document.addEventListener('keydown', handleKeydown);
-        container.addEventListener('click', goHome);
+        container.addEventListener('click', function() {
+            console.log('[slideshow] stopping: click on slideshow (photo %d/%d)', currentIndex + 1, photos.length);
+            goHome();
+        });
         
         // Render first photo and start auto-advance
         renderSlide(currentIndex, ctx);
         preloadAhead();
         startDisplayTimer();
         
-        // Start sleep timer if configured
-        if (SLEEP_TIME !== null) {
-            sleepTimerId = setTimeout(goHome, SLEEP_TIME);
-        }
     }
     
     function handleResize() {
@@ -414,17 +418,16 @@
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
+            console.log('[slideshow] stopping: Escape key pressed (photo %d/%d)', currentIndex + 1, photos.length);
             goHome();
         }
     }
     
     function goHome() {
+        var dest = window.RETURN_URL || '/';
+        console.log('[slideshow] goHome() called, navigating to %s', dest);
         cancelAllTimers();
-        if (sleepTimerId !== null) {
-            clearTimeout(sleepTimerId);
-            sleepTimerId = null;
-        }
-        window.location.href = window.RETURN_URL || '/';
+        window.location.href = dest;
     }
     
     if (document.readyState === 'loading') {
