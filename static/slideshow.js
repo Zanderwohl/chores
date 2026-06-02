@@ -1,6 +1,7 @@
 (function() {
     const photos = window.SLIDESHOW_PHOTOS || [];
-    const PRELOAD_COUNT = 3;
+    const PRELOAD_COUNT = 8;
+    const KEEP_BEHIND = 2;
     
     // Timing configuration
     const DISPLAY_DURATION = window.SLIDESHOW_DISPLAY_TIME || 8000;
@@ -127,19 +128,20 @@
         }
     }
     
-    function renderSlide(index, targetCtx) {
+    function renderSlide(index, targetCtx, onReady) {
         const photo = photos[index];
         const img = preloadedImages.get(photo.url);
         const caption = photo.caption || '';
 
         if (img && img.complete) {
             renderPhotoWithConfig(img, photo.config, caption, targetCtx, targetCtx.canvas);
+            if (onReady) onReady();
         } else {
-            // Image not loaded yet, load it
             const newImg = new Image();
             newImg.onload = function() {
                 preloadedImages.set(photo.url, newImg);
                 renderPhotoWithConfig(newImg, photo.config, caption, targetCtx, targetCtx.canvas);
+                if (onReady) onReady();
             };
             newImg.src = photo.url;
         }
@@ -322,11 +324,10 @@
     }
     
     function evictDistant() {
-        // Keep current slide, one behind it, and PRELOAD_COUNT ahead — drop the rest.
         const keepIndices = new Set();
         keepIndices.add(currentIndex);
-        if (photos.length > 1) {
-            keepIndices.add((currentIndex - 1 + photos.length) % photos.length);
+        for (let i = 1; i <= KEEP_BEHIND; i++) {
+            keepIndices.add((currentIndex - i + photos.length) % photos.length);
         }
         for (let i = 1; i <= PRELOAD_COUNT; i++) {
             keepIndices.add((currentIndex + i) % photos.length);
@@ -375,37 +376,41 @@
         // Save current frame to currentCanvas for blending
         currentCtx.drawImage(canvas, 0, 0);
         
-        // Pre-render target slide to offscreen canvas
-        renderSlide(targetIndex, offscreenCtx);
-        preloadAhead();
+        // Clear offscreen so a stale frame can never flash through
+        offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
         
-        const startTime = performance.now();
-        
-        function animate(currentTime) {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
+        // Pre-render target slide, then start animation once ready
+        renderSlide(targetIndex, offscreenCtx, function() {
+            preloadAhead();
             
-            // Blend current and next frames
-            blendFn(ctx, currentCanvas, offscreenCanvas, progress);
+            const startTime = performance.now();
             
-            if (progress < 1) {
-                transitionAnimationId = requestAnimationFrame(animate);
-            } else {
-                // Transition complete
-                transitionAnimationId = null;
-                isTransitioning = false;
-                transitionTargetIndex = null;
-                currentIndex = targetIndex;
+            function animate(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
                 
-                // Ensure final frame is fully rendered
-                ctx.drawImage(offscreenCanvas, 0, 0);
+                // Blend current and next frames
+                blendFn(ctx, currentCanvas, offscreenCanvas, progress);
                 
-                // Start next display timer
-                startDisplayTimer();
+                if (progress < 1) {
+                    transitionAnimationId = requestAnimationFrame(animate);
+                } else {
+                    // Transition complete
+                    transitionAnimationId = null;
+                    isTransitioning = false;
+                    transitionTargetIndex = null;
+                    currentIndex = targetIndex;
+                    
+                    // Ensure final frame is fully rendered
+                    ctx.drawImage(offscreenCanvas, 0, 0);
+                    
+                    // Start next display timer
+                    startDisplayTimer();
+                }
             }
-        }
-        
-        transitionAnimationId = requestAnimationFrame(animate);
+            
+            transitionAnimationId = requestAnimationFrame(animate);
+        });
     }
     
     function finishTransitionInstantly() {
