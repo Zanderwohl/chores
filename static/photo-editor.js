@@ -23,6 +23,7 @@
         
         drawBackground(bgType);
         drawCroppedImage(cropType);
+        drawCaption();
         
         updateSliderLabels();
     };
@@ -300,6 +301,28 @@
             
             ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
         }
+    }
+    
+    function drawCaption() {
+        const captionInput = document.getElementById('caption');
+        const caption = captionInput ? captionInput.value : '';
+        
+        if (!caption) return;
+        
+        const fontSize = Math.round(canvas.width * 0.025); // 2.5% of canvas width
+        const padding = Math.round(canvas.width * 0.02);
+        const yPos = canvas.height - (fontSize * 1.5);
+        
+        ctx.save();
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.fillStyle = '#fff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 3;
+        ctx.shadowOffsetY = 3;
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(caption, padding, yPos);
+        ctx.restore();
     }
     
     function initControls() {

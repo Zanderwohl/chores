@@ -736,6 +736,12 @@ pub async fn photo_edit(
 
     let save_url = format!("/photo/{}/config", id);
     
+    // Escape caption for embedding in HTML/JS
+    let caption_escaped = photo.caption.as_deref().unwrap_or("")
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+    
     // Determine which sliders should be disabled
     let zoom_disabled = if crop_type != "zoom" { "disabled" } else { "" };
     let expand_disabled = if crop_type == "letterbox" { "disabled" } else { "" };
@@ -754,6 +760,7 @@ pub async fn photo_edit(
     <script>
         window.PHOTO_URL = "{photo_url}";
         window.PHOTO_CONFIG = {config_json};
+        window.PHOTO_CAPTION = "{caption_escaped}";
     </script>
 </head>
 <body>
@@ -769,6 +776,11 @@ pub async fn photo_edit(
         
         <form id="photo-config-form" method="post" action="{save_url}">
             <div class="photo-controls">
+                <div class="control-section">
+                    <h3>Caption</h3>
+                    <input type="text" id="caption" name="caption" value="{caption_escaped}" class="caption-input" oninput="updatePreview()">
+                </div>
+                
                 <div class="control-section">
                     <h3>Crop</h3>
                     <div class="radio-group-vertical">
@@ -857,6 +869,7 @@ pub async fn photo_edit(
         filename = filename,
         photo_url = photo_url,
         config_json = config_json,
+        caption_escaped = caption_escaped,
         save_url = save_url,
         id = id,
         letterbox_checked = if crop_type == "letterbox" { "checked" } else { "" },
@@ -1012,6 +1025,8 @@ pub async fn background_controls(Query(params): Query<BackgroundControlsQuery>) 
 
 #[derive(Deserialize)]
 pub struct PhotoConfigForm {
+    #[serde(default)]
+    caption: String,
     crop_type: String,
     #[serde(default)]
     crop_dx: f32,
@@ -1052,22 +1067,28 @@ pub async fn save_photo_config(
     };
 
     let config = PhotoConfig { crop, background };
+    let caption = if form.caption.trim().is_empty() {
+        None
+    } else {
+        Some(form.caption.trim().to_string())
+    };
 
-    if let Err(e) = update_photo_config(&pool, id, &config).await {
-        error!(id = id, error = %e, "Failed to save photo config");
+    if let Err(e) = update_photo(&pool, id, &config, caption.as_deref()).await {
+        error!(id = id, error = %e, "Failed to save photo");
     }
 
     Redirect::to(&format!("/photo/{}/edit", id))
 }
 
-pub async fn update_photo_config(pool: &DbPool, id: i64, config: &PhotoConfig) -> Result<()> {
+pub async fn update_photo(pool: &DbPool, id: i64, config: &PhotoConfig, caption: Option<&str>) -> Result<()> {
     let config_json = serde_json::to_string(config)?;
-    
-    sqlx::query("UPDATE photos SET config = ? WHERE id = ?")
+
+    sqlx::query("UPDATE photos SET config = ?, caption = ? WHERE id = ?")
         .bind(&config_json)
+        .bind(caption)
         .bind(id)
         .execute(pool)
         .await?;
-    
+
     Ok(())
 }

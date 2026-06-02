@@ -1393,3 +1393,11 @@ a.daily-event-name:hover {
     gap: 12px;
     margin-top: 24px;
 }
+
+.caption-input {
+    width: 100%;
+    padding: 8px;
+    font-size: 16px;
+    border: 2px solid #000;
+    box-sizing: border-box;
+}

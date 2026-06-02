@@ -107,21 +107,22 @@
     function renderSlide(index, targetCtx) {
         const photo = photos[index];
         const img = preloadedImages.get(photo.url);
+        const caption = photo.caption || '';
         
         if (img && img.complete) {
-            renderPhotoWithConfig(img, photo.config, targetCtx, targetCtx.canvas);
+            renderPhotoWithConfig(img, photo.config, caption, targetCtx, targetCtx.canvas);
         } else {
             // Image not loaded yet, load it
             const newImg = new Image();
             newImg.onload = function() {
                 preloadedImages.set(photo.url, newImg);
-                renderPhotoWithConfig(newImg, photo.config, targetCtx, targetCtx.canvas);
+                renderPhotoWithConfig(newImg, photo.config, caption, targetCtx, targetCtx.canvas);
             };
             newImg.src = photo.url;
         }
     }
     
-    function renderPhotoWithConfig(img, config, targetCtx, targetCanvas) {
+    function renderPhotoWithConfig(img, config, caption, targetCtx, targetCanvas) {
         targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         
         const crop = config.crop || 'Letterbox';
@@ -129,6 +130,26 @@
         
         drawBackground(img, background, targetCtx, targetCanvas);
         drawCroppedImage(img, crop, targetCtx, targetCanvas);
+        drawCaption(caption, targetCtx, targetCanvas);
+    }
+    
+    function drawCaption(caption, targetCtx, targetCanvas) {
+        if (!caption) return;
+        
+        const fontSize = Math.round(targetCanvas.width * 0.025); // 2.5% of canvas width
+        const padding = Math.round(targetCanvas.width * 0.02);
+        const yPos = targetCanvas.height - (fontSize * 1.5);
+        
+        targetCtx.save();
+        targetCtx.font = `${fontSize}px sans-serif`;
+        targetCtx.fillStyle = '#fff';
+        targetCtx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+        targetCtx.shadowBlur = 8;
+        targetCtx.shadowOffsetX = 3;
+        targetCtx.shadowOffsetY = 3;
+        targetCtx.textBaseline = 'bottom';
+        targetCtx.fillText(caption, padding, yPos);
+        targetCtx.restore();
     }
     
     function drawBackground(img, background, targetCtx, targetCanvas) {
