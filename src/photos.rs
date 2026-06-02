@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Form, Path, Query, State},
+    extract::{Form, Multipart, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
@@ -600,6 +600,12 @@ pub async fn idle_page(
         None => "null".to_string(),
     };
 
+    // Sleep time in milliseconds (or null for indefinite)
+    let sleep_time_js = match user_settings.sleep_time {
+        Some(minutes) => format!("{}", minutes as u32 * 60 * 1000),
+        None => "null".to_string(),
+    };
+
     let html = maud! {
         !DOCTYPE
         html {
@@ -611,8 +617,8 @@ pub async fn idle_page(
                 link rel="stylesheet" href="/static/app.css";
                 script {
                     (Raw::dangerously_create(&format!(
-                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};",
-                        photos_json, return_url, display_time_js
+                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};\nwindow.SLIDESHOW_SLEEP_TIME = {};",
+                        photos_json, return_url, display_time_js, sleep_time_js
                     )))
                 }
             }
@@ -647,13 +653,19 @@ pub async fn photos_index(State(_pool): State<DbPool>) -> Html<String> {
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script src="/static/htmx.min.js" {}
+                script src="/static/auto-sleep.js" {}
             }
             body {
                 div .photos-page {
                     div .photos-page-header {
                         a href="/" { "← Back" }
                     }
-                    h1 { "Photos" }
+                    div .page-header {
+                        h1 { "Photos" }
+                        div .page-header-buttons {
+                            a .btn href="/photos/upload" { "Upload" }
+                        }
+                    }
                     (Raw::dangerously_create(r##"<div id="photo-list" hx-get="/photos/list?page=1" hx-trigger="load" hx-swap="innerHTML"><p>Loading...</p></div>"##))
                 }
             }
@@ -860,6 +872,7 @@ pub async fn photo_show(
                 title { (filename) " - Chores" }
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
+                script src="/static/auto-sleep.js" {}
             }
             body {
                 div .photo-show-page {
@@ -964,6 +977,7 @@ pub async fn photo_edit(
         window.PHOTO_CONFIG = {config_json};
         window.PHOTO_CAPTION = "{caption_escaped}";
     </script>
+    <script src="/static/auto-sleep.js"></script>
 </head>
 <body>
     <div class="photo-edit-page">
@@ -1336,4 +1350,247 @@ pub async fn update_photo(pool: &DbPool, id: i64, config: &PhotoConfig, caption:
         .await?;
 
     Ok(())
+}
+
+// ============================================================================
+// Photo Upload
+// ============================================================================
+
+pub async fn upload_page(State(_pool): State<DbPool>) -> Html<String> {
+    let accept_types = "image/jpeg,image/png,image/gif,image/webp";
+    
+    let html = maud! {
+        !DOCTYPE
+        html {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Upload Photo - Chores" }
+                link rel="stylesheet" href="/static/system.css";
+                link rel="stylesheet" href="/static/app.css";
+                script src="/static/auto-sleep.js" {}
+            }
+            body {
+                div .photos-page {
+                    div .photos-page-header {
+                        a href="/photos" { "← Back to Photos" }
+                    }
+                    h1 { "Upload Photo" }
+                    
+                    div #upload-dropzone .upload-dropzone {
+                        input #file-input type="file" accept=(accept_types) style="display:none";
+                        p { "Drag and drop an image here" }
+                        p { "or" }
+                        button #select-btn .btn type="button" { "Select File" }
+                    }
+                    
+                    div #upload-preview .upload-preview style="display:none" {
+                        img #preview-image src="" alt="Preview";
+                        p #filename-display {}
+                        div #upload-warning .upload-warning {}
+                        div .upload-actions {
+                            button #clear-btn .btn type="button" { "Clear" }
+                            button #upload-btn ."btn btn-default" type="button" { "Upload" }
+                        }
+                    }
+                    
+                    div #upload-status {}
+                }
+                script src="/static/upload.js" {}
+            }
+        }
+    };
+
+    Html(html.render().into_inner())
+}
+
+#[derive(Deserialize)]
+pub struct UploadCheckQuery {
+    filename: String,
+}
+
+pub async fn upload_check(
+    State(pool): State<DbPool>,
+    Query(query): Query<UploadCheckQuery>,
+) -> Html<String> {
+    let filename = query.filename.trim();
+    
+    if filename.is_empty() {
+        return Html(String::new());
+    }
+    
+    let exists: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM photos WHERE path = ?"
+    )
+        .bind(filename)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+    
+    if exists.is_some() {
+        let stem = std::path::Path::new(filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(filename);
+        let ext = std::path::Path::new(filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        
+        let new_name = if ext.is_empty() {
+            format!("{}-1", stem)
+        } else {
+            format!("{}-1.{}", stem, ext)
+        };
+        
+        Html(format!(
+            r#"<p>A photo with this name already exists. It will be saved as <strong>{}</strong>.</p>"#,
+            new_name
+        ))
+    } else {
+        Html(String::new())
+    }
+}
+
+fn find_unique_filename(base_filename: &str, existing_paths: &std::collections::HashSet<String>) -> String {
+    if !existing_paths.contains(base_filename) {
+        return base_filename.to_string();
+    }
+    
+    let path = std::path::Path::new(base_filename);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(base_filename);
+    let ext = path.extension().and_then(|s| s.to_str());
+    
+    let mut n = 1;
+    loop {
+        let new_name = match ext {
+            Some(e) => format!("{}-{}.{}", stem, n, e),
+            None => format!("{}-{}", stem, n),
+        };
+        if !existing_paths.contains(&new_name) {
+            return new_name;
+        }
+        n += 1;
+    }
+}
+
+pub async fn upload_photo(
+    State(pool): State<DbPool>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut file_data: Option<(String, Vec<u8>)> = None;
+    
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("file") {
+            let original_filename = field.file_name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "upload.jpg".to_string());
+            
+            let ext = std::path::Path::new(&original_filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .unwrap_or_default();
+            
+            if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header(header::CONTENT_TYPE, "text/html")
+                    .body(Body::from(r#"<div class="upload-error">Invalid file type. Allowed: jpg, jpeg, png, gif, webp</div>"#))
+                    .unwrap();
+            }
+            
+            match field.bytes().await {
+                Ok(bytes) => {
+                    file_data = Some((original_filename, bytes.to_vec()));
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to read upload data");
+                    return Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header(header::CONTENT_TYPE, "text/html")
+                        .body(Body::from(r#"<div class="upload-error">Failed to read file data</div>"#))
+                        .unwrap();
+                }
+            }
+        }
+    }
+    
+    let (original_filename, bytes) = match file_data {
+        Some(data) => data,
+        None => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(Body::from(r#"<div class="upload-error">No file uploaded</div>"#))
+                .unwrap();
+        }
+    };
+    
+    let existing: Vec<(String,)> = sqlx::query_as("SELECT path FROM photos")
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+    
+    let existing_db: std::collections::HashSet<String> = existing.into_iter().map(|(p,)| p).collect();
+    
+    let mut existing_paths = existing_db.clone();
+    if let Ok(mut entries) = fs::read_dir("photos").await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Some(name) = entry.file_name().to_str() {
+                existing_paths.insert(name.to_string());
+            }
+        }
+    }
+    
+    let final_filename = find_unique_filename(&original_filename, &existing_paths);
+    let file_path = PathBuf::from("photos").join(&final_filename);
+    
+    if let Err(e) = fs::write(&file_path, &bytes).await {
+        error!(error = %e, path = %file_path.display(), "Failed to write photo file");
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .header(header::CONTENT_TYPE, "text/html")
+            .body(Body::from(r#"<div class="upload-error">Failed to save file</div>"#))
+            .unwrap();
+    }
+    
+    let default_config = serde_json::to_string(&PhotoConfig::default()).unwrap_or_else(|_| "{}".to_string());
+    let insert_result = sqlx::query(
+        "INSERT INTO photos (path, missing, active, config) VALUES (?, 0, 1, ?)"
+    )
+        .bind(&final_filename)
+        .bind(&default_config)
+        .execute(&pool)
+        .await;
+    
+    let photo_id = match insert_result {
+        Ok(result) => result.last_insert_rowid(),
+        Err(e) => {
+            error!(error = %e, filename = %final_filename, "Failed to insert photo into database");
+            let _ = fs::remove_file(&file_path).await;
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(Body::from(r#"<div class="upload-error">Failed to save to database</div>"#))
+                .unwrap();
+        }
+    };
+    
+    let filename_clone = final_filename.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        ensure_thumbnail_sync(&filename_clone)
+    }).await;
+    
+    info!(filename = %final_filename, id = photo_id, "Photo uploaded successfully");
+    
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("HX-Redirect", format!("/photo/{}/edit", photo_id))
+        .header(header::CONTENT_TYPE, "text/html")
+        .body(Body::from(format!(
+            r#"<div class="upload-success">Photo uploaded successfully as {}</div>"#,
+            final_filename
+        )))
+        .unwrap()
 }

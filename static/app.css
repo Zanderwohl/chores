@@ -1011,6 +1011,18 @@ a.daily-event-name:hover {
     text-decoration: underline;
 }
 
+.calendar-cell-touchable {
+    cursor: pointer;
+}
+
+.calendar-cell-touchable:active {
+    background: #ddd;
+}
+
+.calendar-cell-touchable .calendar-cell-day-number {
+    pointer-events: none;
+}
+
 .calendar-cell-events {
     font-size: 12px;
 }
@@ -1488,6 +1500,104 @@ a.daily-event-name:hover {
 
 .settings-page .form-actions {
     margin-top: 24px;
+}
+
+.settings-page .form-group-checkbox {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.settings-page .form-group-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.settings-page .form-group-checkbox label {
+    display: inline;
+    margin-bottom: 0;
+}
+
+.settings-page .form-group-checkbox .form-help {
+    flex-basis: 100%;
+    margin-left: 26px;
+}
+
+/* ============================================================================
+   Photo Upload
+   ============================================================================ */
+
+.upload-dropzone {
+    border: 2px dashed #000;
+    padding: 48px;
+    text-align: center;
+    cursor: pointer;
+    background: #fff;
+}
+
+.upload-dropzone.dragover {
+    background: #eee;
+}
+
+.upload-dropzone p {
+    margin: 8px 0;
+    font-size: 18px;
+}
+
+.upload-preview {
+    border: 2px solid #000;
+    padding: 16px;
+    text-align: center;
+    background: #fff;
+}
+
+.upload-preview img {
+    max-width: 100%;
+    max-height: 400px;
+    border: 1px solid #000;
+}
+
+.upload-preview p {
+    margin: 12px 0 0 0;
+    font-size: 16px;
+}
+
+.upload-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.upload-warning {
+    color: #c00;
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+.upload-warning p {
+    margin: 0;
+}
+
+.upload-error {
+    color: #c00;
+    margin-top: 12px;
+    font-size: 16px;
+}
+
+.upload-status-message {
+    color: #000;
+    margin-top: 12px;
+    font-size: 16px;
+}
+
+.upload-success {
+    color: #060;
+    margin-top: 12px;
+    font-size: 16px;
 }
 
 .settings-page .error-message {

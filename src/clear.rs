@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod migrate;
 mod schedule;
+mod settings;
 mod tasks;
 
 use anyhow::Result;

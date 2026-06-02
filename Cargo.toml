@@ -25,7 +25,7 @@ name = "migrate"
 path = "src/bin/migrate.rs"
 
 [dependencies]
-axum = "0.8.7"
+axum = { version = "0.8.7", features = ["multipart"] }
 tokio = { version = "1.48.0", features = ["default", "rt-multi-thread"] }
 hypertext = "0.12.1"
 sqlx = { version = "0.8", features = [ "runtime-tokio", "macros", "sqlite" ] }

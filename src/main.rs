@@ -3,7 +3,7 @@ mod db;
 mod migrate;
 mod photos;
 mod schedule;
-mod settings;
+pub mod settings;
 mod storybook;
 mod tasks;
 
@@ -138,6 +138,8 @@ async fn main() -> Result<()> {
         .route("/idle", get(photos::idle_page))
         .route("/photos", get(photos::photos_index))
         .route("/photos/list", get(photos::photos_list))
+        .route("/photos/upload", get(photos::upload_page).post(photos::upload_photo))
+        .route("/photos/upload/check", get(photos::upload_check))
         .route("/photos/{*path}", get(photos::serve_photo))
         .route("/photo/{id}", get(photos::photo_show))
         .route("/photo/{id}/edit", get(photos::photo_edit))

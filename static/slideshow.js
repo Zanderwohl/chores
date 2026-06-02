@@ -6,6 +6,7 @@
     const DISPLAY_DURATION = window.SLIDESHOW_DISPLAY_TIME || 8000;
     const TRANSITION_DURATION = 1500;        // ms for auto-advance crossfade
     const MANUAL_TRANSITION_DURATION = 1000; // ms for arrow key transitions
+    const SLEEP_TIME = window.SLIDESHOW_SLEEP_TIME || null; // null = indefinite
     
     // State
     let currentIndex = 0;
@@ -22,6 +23,7 @@
     let transitionAnimationId = null;
     let isTransitioning = false;
     let transitionTargetIndex = null;
+    let sleepTimerId = null;
     
     // Blend function - swappable closure for different transition effects
     const blendFn = function(mainCtx, currentCanvas, nextCanvas, progress) {
@@ -82,6 +84,11 @@
         renderSlide(currentIndex, ctx);
         preloadAhead();
         startDisplayTimer();
+        
+        // Start sleep timer if configured
+        if (SLEEP_TIME !== null) {
+            sleepTimerId = setTimeout(goHome, SLEEP_TIME);
+        }
     }
     
     function handleResize() {
@@ -400,6 +407,10 @@
     
     function goHome() {
         cancelAllTimers();
+        if (sleepTimerId !== null) {
+            clearTimeout(sleepTimerId);
+            sleepTimerId = null;
+        }
         window.location.href = window.RETURN_URL || '/';
     }
     

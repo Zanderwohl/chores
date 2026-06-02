@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     response::Html,
     routing::{get, post},
     Form, Router,
@@ -11,7 +12,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info};
 
-use crate::config::{get_timezone, is_touch_mode};
+use crate::config::get_timezone;
+use crate::settings;
 use crate::db::{self, DbPool};
 use crate::schedule::{CertainMonths, DaysOfWeek, Monthwise, NDays, NWeeks, Once, ScheduleKind, WeeksOfMonth};
 
@@ -284,7 +286,7 @@ pub fn router() -> Router<DbPool> {
 }
 
 // POST /tasks/:id/complete - Mark a task as complete
-async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
+async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
     // Add completion record
     match db::add_completion(&pool, &id).await {
         Ok(_) => info!(task_id = %id, "Task completed"),
@@ -292,11 +294,11 @@ async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Ht
     }
 
     // Re-render the entire homepage
-    homepage(State(pool)).await
+    homepage(State(pool), headers).await
 }
 
 // POST /tasks/:id/delete - Mark a task as deleted (set deleted_at)
-async fn delete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
+async fn delete_task(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
     if let Ok(task_id) = id.parse::<i64>() {
         match db::set_task_deleted_at(&pool, task_id, Some(Utc::now())).await {
             Ok(_) => info!(task_id = %id, "Task deleted"),
@@ -305,11 +307,11 @@ async fn delete_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html
     }
 
     // Re-render the task show page
-    task_show(State(pool), Path(id)).await
+    task_show(State(pool), Path(id), headers).await
 }
 
 // POST /tasks/:id/restore - Restore a deleted task (clear deleted_at)
-async fn restore_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
+async fn restore_task(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
     if let Ok(task_id) = id.parse::<i64>() {
         match db::set_task_deleted_at(&pool, task_id, None).await {
             Ok(_) => info!(task_id = %id, "Task restored"),
@@ -318,11 +320,12 @@ async fn restore_task(State(pool): State<DbPool>, Path(id): Path<String>) -> Htm
     }
 
     // Re-render the task show page
-    task_show(State(pool), Path(id)).await
+    task_show(State(pool), Path(id), headers).await
 }
 
 // GET /tasks/:id - Show page for a single task
-async fn task_show(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
+async fn task_show(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
+    let is_touch = settings::is_touch_mode(&headers);
     let task = if is_demo_id(&id) {
         let tasks = get_demo_tasks();
         let tasks_guard = tasks.lock().unwrap();
@@ -345,13 +348,14 @@ async fn task_show(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<S
     // Get all completions for calendar and list
     let completions = db::get_all_completions(&pool, &id).await.unwrap_or_default();
 
-    Html(render_task_show_page(&task, &completions))
+    Html(render_task_show_page(&task, &completions, is_touch))
 }
 
 // DELETE /tasks/:id/completions/:completion_id - Delete a completion
 async fn delete_completion(
     State(pool): State<DbPool>,
     Path((task_id, completion_id)): Path<(String, i64)>,
+    headers: HeaderMap,
 ) -> Html<String> {
     match db::delete_completion(&pool, completion_id).await {
         Ok(_) => info!(task_id = %task_id, completion_id = %completion_id, "Completion deleted"),
@@ -359,11 +363,12 @@ async fn delete_completion(
     }
 
     // Re-render the task show page
-    task_show(State(pool), Path(task_id)).await
+    task_show(State(pool), Path(task_id), headers).await
 }
 
 // GET / - Homepage with task cards
-pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
+pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<String> {
+    let is_touch = settings::is_touch_mode(&headers);
     // Collect all tasks from database only (demo tasks are excluded from index)
     let all_tasks: Vec<DemoTask> = db::get_all_tasks(&pool).await.unwrap_or_default();
     let now = Utc::now();
@@ -441,10 +446,11 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script src="/static/htmx.min.js" {}
+                script src="/static/auto-sleep.js" {}
             }
             body {
                 div .corner-links {
-                    @if is_touch_mode() {
+                    @if is_touch {
                         button .btn onclick="window.location.href='/idle?return=home'" { "Sleep" }
                         button .btn onclick="window.location.href='/settings'" { "Settings" }
                     } @else {
@@ -457,7 +463,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                     div .page-header {
                         h1 { "Chores" }
                         div .page-header-buttons {
-                            @if is_touch_mode() {
+                            @if is_touch {
                                 button .btn onclick="window.location.href='/daily'" { "Daily" }
                                 button .btn onclick="window.location.href='/calendar'" { "Calendar" }
                             } @else {
@@ -472,7 +478,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Due Tasks" }
                             div .task-card-grid {
                                 @for task in &due_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "due")))
+                                    (Raw::dangerously_create(&render_task_card(task, "due", is_touch)))
                                 }
                             }
                         }
@@ -483,7 +489,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Upcoming Tasks" }
                             div .task-card-grid {
                                 @for task in &alerting_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "alerting")))
+                                    (Raw::dangerously_create(&render_task_card(task, "alerting", is_touch)))
                                 }
                             }
                         }
@@ -494,7 +500,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Completed" }
                             div .task-card-grid {
                                 @for task in &completed_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "completed")))
+                                    (Raw::dangerously_create(&render_task_card(task, "completed", is_touch)))
                                 }
                             }
                         }
@@ -505,7 +511,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Other Tasks" }
                             div .task-card-grid {
                                 @for task in &other_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "normal")))
+                                    (Raw::dangerously_create(&render_task_card(task, "normal", is_touch)))
                                 }
                             }
                         }
@@ -516,7 +522,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Recurring Events" }
                             div .task-card-grid {
                                 @for task in &recurring_events {
-                                    (Raw::dangerously_create(&render_task_card(task, "event")))
+                                    (Raw::dangerously_create(&render_task_card(task, "event", is_touch)))
                                 }
                             }
                         }
@@ -527,7 +533,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                             h2 { "Inactive" }
                             div .task-card-grid {
                                 @for task in &inactive_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "inactive")))
+                                    (Raw::dangerously_create(&render_task_card(task, "inactive", is_touch)))
                                 }
                             }
                         }
@@ -536,7 +542,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                     @if due_tasks.is_empty() && alerting_tasks.is_empty() && completed_tasks.is_empty() && other_tasks.is_empty() && recurring_events.is_empty() && inactive_tasks.is_empty() {
                         div .empty-state {
                             p { "No tasks yet!" }
-                            @if is_touch_mode() {
+                            @if is_touch {
                                 button .btn onclick="window.location.href='/tasks'" { "Go to Tasks →" }
                             } @else {
                                 a href="/tasks" { "Go to Tasks →" }
@@ -545,7 +551,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                     }
 
                     div .homepage-footer {
-                        @if is_touch_mode() {
+                        @if is_touch {
                             button .btn.btn-default onclick="window.location.href='/tasks'" { "Manage Tasks →" }
                         } @else {
                             a href="/tasks" { "Manage Tasks →" }
@@ -571,27 +577,31 @@ pub struct DailyQuery {
 pub async fn daily_today(
     State(pool): State<DbPool>,
     Query(query): Query<DailyQuery>,
+    headers: HeaderMap,
 ) -> Html<String> {
     let tz = get_timezone();
     let now = Utc::now().with_timezone(&tz);
+    let is_touch = settings::is_touch_mode(&headers);
     
     // Use query params if provided, otherwise use today
     let year = query.year.unwrap_or_else(|| now.year());
     let month = query.month.unwrap_or_else(|| now.month());
     let day = query.day.unwrap_or_else(|| now.day());
     
-    daily_page_inner(&pool, year, month, day).await
+    daily_page_inner(&pool, year, month, day, is_touch).await
 }
 
 // GET /daily/:year/:month/:day - Daily page for a specific date
 pub async fn daily_page(
     State(pool): State<DbPool>,
     Path((year, month, day)): Path<(i32, u32, u32)>,
+    headers: HeaderMap,
 ) -> Html<String> {
-    daily_page_inner(&pool, year, month, day).await
+    let is_touch = settings::is_touch_mode(&headers);
+    daily_page_inner(&pool, year, month, day, is_touch).await
 }
 
-async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Html<String> {
+async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_touch: bool) -> Html<String> {
     use chrono::NaiveDate;
     
     // Validate and clamp the date
@@ -734,7 +744,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
         tasks_on_day.iter().map(|(task, time)| {
             let time_str = time.format("%H:%M").to_string();
             let task_url = format!("/tasks/{}", task.id);
-            if is_touch_mode() {
+            if is_touch {
                 format!(
                     r##"<div class="daily-event">
                         <span class="daily-event-time">{}</span>
@@ -773,7 +783,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     let today_badge = if is_today { r#"<span class="daily-today-badge"> (Today)</span>"# } else { "" };
     
     // Build home button
-    let home_button = if is_touch_mode() {
+    let home_button = if is_touch {
         r#"<button class="btn" onclick="window.location.href='/'">Home</button>"#
     } else {
         r#"<a class="btn" href="/">Home</a>"#
@@ -781,7 +791,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     
     // Build sleep button/link with return params
     let sleep_url = format!("/idle?return=daily&year={}&month={}&day={}", year, month, day);
-    let sleep_button = if is_touch_mode() {
+    let sleep_button = if is_touch {
         format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
     } else {
         format!(r#"<a href="{}">Sleep</a>"#, sleep_url)
@@ -789,7 +799,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     
     // Build back link to calendar
     let calendar_url = format!("/calendar/{}/{}", year, month);
-    let back_link = if is_touch_mode() {
+    let back_link = if is_touch {
         format!(r#"<button class="btn" onclick="window.location.href='{}'">← Calendar</button>"#, calendar_url)
     } else {
         format!(r#"<a href="{}">← Calendar</a>"#, calendar_url)
@@ -805,6 +815,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
     <link rel="stylesheet" href="/static/system.css">
     <link rel="stylesheet" href="/static/app.css">
     <script src="/static/htmx.min.js"></script>
+    <script src="/static/auto-sleep.js"></script>
 </head>
 <body>
     <div class="daily-page" id="daily-page">
@@ -869,26 +880,30 @@ pub struct CalendarQuery {
 pub async fn calendar_today(
     State(pool): State<DbPool>,
     Query(query): Query<CalendarQuery>,
+    headers: HeaderMap,
 ) -> Html<String> {
     let tz = get_timezone();
     let now = Utc::now().with_timezone(&tz);
+    let is_touch = settings::is_touch_mode(&headers);
     
     // Use query params if provided, otherwise use current month
     let year = query.year.unwrap_or_else(|| now.year());
     let month = query.month.unwrap_or_else(|| now.month());
     
-    calendar_page_inner(&pool, year, month).await
+    calendar_page_inner(&pool, year, month, is_touch).await
 }
 
 // GET /calendar/:year/:month - Calendar page for a specific month
 pub async fn calendar_page(
     State(pool): State<DbPool>,
     Path((year, month)): Path<(i32, u32)>,
+    headers: HeaderMap,
 ) -> Html<String> {
-    calendar_page_inner(&pool, year, month).await
+    let is_touch = settings::is_touch_mode(&headers);
+    calendar_page_inner(&pool, year, month, is_touch).await
 }
 
-async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<String> {
+async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: bool) -> Html<String> {
     use chrono::{NaiveDate, Weekday};
     
     // Validate month
@@ -1036,25 +1051,46 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
         
         let day_url = format!("/daily/{}/{}/{}", year, month, day);
         
-        // Build task list for the cell (show ALL tasks)
-        let tasks_html: String = tasks_on_day.iter()
-            .map(|(task, time)| {
-                let time_str = time.format("%H:%M").to_string();
-                let task_url = format!("/tasks/{}", task.id);
-                format!(
-                    r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <a href="{}" class="calendar-cell-event-name">{}</a></div>"#,
-                    time_str, task_url, task.name
-                )
-            })
-            .collect();
-        
-        cells.push_str(&format!(
-            r##"<div class="{}">
-                <a href="{}" class="calendar-cell-day-number">{}</a>
-                <div class="calendar-cell-events">{}</div>
-            </div>"##,
-            cell_class, day_url, day, tasks_html
-        ));
+        if is_touch {
+            // Touch mode: entire cell is clickable, no individual task links
+            let tasks_html: String = tasks_on_day.iter()
+                .map(|(task, time)| {
+                    let time_str = time.format("%H:%M").to_string();
+                    format!(
+                        r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <span class="calendar-cell-event-name">{}</span></div>"#,
+                        time_str, task.name
+                    )
+                })
+                .collect();
+            
+            cells.push_str(&format!(
+                r##"<div class="{} calendar-cell-touchable" onclick="window.location.href='{}'">
+                    <span class="calendar-cell-day-number">{}</span>
+                    <div class="calendar-cell-events">{}</div>
+                </div>"##,
+                cell_class, day_url, day, tasks_html
+            ));
+        } else {
+            // Non-touch mode: individual task links
+            let tasks_html: String = tasks_on_day.iter()
+                .map(|(task, time)| {
+                    let time_str = time.format("%H:%M").to_string();
+                    let task_url = format!("/tasks/{}", task.id);
+                    format!(
+                        r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <a href="{}" class="calendar-cell-event-name">{}</a></div>"#,
+                        time_str, task_url, task.name
+                    )
+                })
+                .collect();
+            
+            cells.push_str(&format!(
+                r##"<div class="{}">
+                    <a href="{}" class="calendar-cell-day-number">{}</a>
+                    <div class="calendar-cell-events">{}</div>
+                </div>"##,
+                cell_class, day_url, day, tasks_html
+            ));
+        }
     }
     
     // Empty cells after last day to complete the grid
@@ -1078,7 +1114,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     };
     
     // Build home button
-    let home_button = if is_touch_mode() {
+    let home_button = if is_touch {
         r#"<button class="btn" onclick="window.location.href='/'">Home</button>"#
     } else {
         r#"<a class="btn" href="/">Home</a>"#
@@ -1086,7 +1122,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     
     // Build sleep button/link with return params
     let sleep_url = format!("/idle?return=calendar&year={}&month={}", year, month);
-    let sleep_button = if is_touch_mode() {
+    let sleep_button = if is_touch {
         format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
     } else {
         format!(r#"<a href="{}">Sleep</a>"#, sleep_url)
@@ -1105,6 +1141,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     <link rel="stylesheet" href="/static/system.css">
     <link rel="stylesheet" href="/static/app.css">
     <script src="/static/htmx.min.js"></script>
+    <script src="/static/auto-sleep.js"></script>
 </head>
 <body>
     <div class="calendar-page" id="calendar-page">
@@ -1135,7 +1172,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
     Html(html)
 }
 
-fn render_task_card(task: &DemoTask, status: &str) -> String {
+fn render_task_card(task: &DemoTask, status: &str, is_touch: bool) -> String {
     let status_class = format!("task-card task-card-{}", status);
     let due_str = task.time_as_readable_string();
     let complete_url = format!("/tasks/{}/complete", task.id);
@@ -1169,7 +1206,7 @@ fn render_task_card(task: &DemoTask, status: &str) -> String {
         ""
     };
 
-    let title_html = if is_touch_mode() {
+    let title_html = if is_touch {
         format!(
             r##"<button class="btn task-card-title-btn" onclick="window.location.href='{}'"><span class="task-card-title">{}</span>{}</button>"##,
             show_url,
@@ -1199,7 +1236,7 @@ fn render_task_card(task: &DemoTask, status: &str) -> String {
     .into_inner()
 }
 
-fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) -> String {
+fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord], is_touch: bool) -> String {
     let schedule_type_label = match task.schedule_kind {
         ScheduleKind::NDays => format!("Every {} day(s)", task.n_days.days),
         ScheduleKind::NWeeks => {
@@ -1331,11 +1368,12 @@ fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord]) 
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script src="/static/htmx.min.js" {}
+                script src="/static/auto-sleep.js" {}
             }
             body {
                 div .task-show-page id="task-show-page" {
                     div .task-show-header {
-                        @if is_touch_mode() {
+                        @if is_touch {
                             button .btn onclick="window.location.href='/'" { "← Home" }
                             " "
                             button .btn onclick="window.location.href='/tasks'" { "Tasks" }
@@ -1685,8 +1723,9 @@ fn default_per_page() -> i64 {
 }
 
 // GET /tasks - Show the task index page
-async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>) -> Html<String> {
-    let list_html = render_task_list(&pool, &query.sort, query.page, query.per_page).await;
+async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>, headers: HeaderMap) -> Html<String> {
+    let is_touch = settings::is_touch_mode(&headers);
+    let list_html = render_task_list(&pool, &query.sort, query.page, query.per_page, is_touch).await;
 
     let html = maud! {
         !DOCTYPE
@@ -1698,11 +1737,12 @@ async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>)
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script src="/static/htmx.min.js" {}
+                script src="/static/auto-sleep.js" {}
             }
             body {
                 div .tasks-page {
                     div .tasks-page-header {
-                        @if is_touch_mode() {
+                        @if is_touch {
                             button .btn onclick="window.location.href='/'" { "← Home" }
                         } @else {
                             a href="/" { "← Home" }
@@ -1740,8 +1780,9 @@ async fn tasks_index(State(pool): State<DbPool>, Query(query): Query<ListQuery>)
 }
 
 // GET /tasks/list - Return just the task list (for HTMX)
-async fn tasks_list(State(pool): State<DbPool>, Query(query): Query<ListQuery>) -> Html<String> {
-    Html(render_task_list(&pool, &query.sort, query.page, query.per_page).await)
+async fn tasks_list(State(pool): State<DbPool>, Query(query): Query<ListQuery>, headers: HeaderMap) -> Html<String> {
+    let is_touch = settings::is_touch_mode(&headers);
+    Html(render_task_list(&pool, &query.sort, query.page, query.per_page, is_touch).await)
 }
 
 // GET /tasks/:id/edit - Get edit view for a single task (standalone, from saved state)
@@ -2515,7 +2556,7 @@ fn render_per_page_select(current_per_page: i64) -> String {
     )
 }
 
-async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64) -> String {
+async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64, is_touch: bool) -> String {
     // Ensure valid pagination values
     let per_page = per_page.max(1).min(100);
     let page = page.max(1);
@@ -2551,7 +2592,7 @@ async fn render_task_list(pool: &DbPool, sort: &str, page: i64, per_page: i64) -
             .unwrap_or_default()
     };
 
-    let items: Vec<String> = tasks.iter().map(render_task_list_item).collect();
+    let items: Vec<String> = tasks.iter().map(|t| render_task_list_item(t, is_touch)).collect();
     let pagination_html = render_pagination(page, total_pages, per_page, sort, total_count);
 
     maud! {
@@ -2674,12 +2715,12 @@ fn render_pagination(current_page: i64, total_pages: i64, per_page: i64, sort: &
     )
 }
 
-fn render_task_list_item(task: &DemoTask) -> String {
+fn render_task_list_item(task: &DemoTask, is_touch: bool) -> String {
     let edit_url = format!("/tasks/{}/edit-modal", task.id);
     let show_url = format!("/tasks/{}", task.id);
     let next_due = task.time_as_readable_string();
 
-    let task_name_html = if is_touch_mode() {
+    let task_name_html = if is_touch {
         format!(
             r##"<button class="btn task-name-btn" onclick="window.location.href='{}'"><span class="task-name">{}</span></button>"##,
             show_url,
