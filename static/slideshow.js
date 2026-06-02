@@ -318,6 +318,30 @@
                 preloadedImages.set(photo.url, img);
             }
         }
+        evictDistant();
+    }
+    
+    function evictDistant() {
+        // Keep current slide, one behind it, and PRELOAD_COUNT ahead — drop the rest.
+        const keepIndices = new Set();
+        keepIndices.add(currentIndex);
+        if (photos.length > 1) {
+            keepIndices.add((currentIndex - 1 + photos.length) % photos.length);
+        }
+        for (let i = 1; i <= PRELOAD_COUNT; i++) {
+            keepIndices.add((currentIndex + i) % photos.length);
+        }
+        
+        const keepUrls = new Set();
+        for (const idx of keepIndices) {
+            keepUrls.add(photos[idx].url);
+        }
+        
+        for (const url of preloadedImages.keys()) {
+            if (!keepUrls.has(url)) {
+                preloadedImages.delete(url);
+            }
+        }
     }
     
     // Timer management
