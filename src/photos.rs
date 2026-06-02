@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::{
     body::Body,
     extract::{Form, Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use hypertext::{prelude::*, Raw};
@@ -14,6 +14,7 @@ use tokio::fs;
 use tracing::{error, info};
 
 use crate::db::DbPool;
+use crate::settings;
 
 // ============================================================================
 // Photo Types
@@ -27,6 +28,7 @@ pub struct Photo {
     pub active: bool,
     pub caption: Option<String>,
     pub config: PhotoConfig,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -170,9 +172,14 @@ pub async fn get_all_photos(pool: &DbPool) -> Result<Vec<Photo>> {
         .fetch_all(pool)
         .await?;
 
+    // Get all tags for these photos in one query
+    let photo_ids: Vec<i64> = rows.iter().map(|(id, ..)| *id).collect();
+    let tags_map = get_tags_for_photos(pool, &photo_ids).await.unwrap_or_default();
+
     let mut photos = Vec::new();
     for (id, path, missing, active, caption, config_str) in rows {
         let config: PhotoConfig = serde_json::from_str(&config_str).unwrap_or_default();
+        let tags = tags_map.get(&id).cloned().unwrap_or_default();
         photos.push(Photo {
             id,
             path: PathBuf::from(path),
@@ -180,6 +187,7 @@ pub async fn get_all_photos(pool: &DbPool) -> Result<Vec<Photo>> {
             active: active != 0,
             caption,
             config,
+            tags,
         });
     }
 
@@ -194,17 +202,22 @@ pub async fn get_photo(pool: &DbPool, id: i64) -> Result<Option<Photo>> {
         .fetch_optional(pool)
         .await?;
 
-    Ok(row.map(|(id, path, missing, active, caption, config_str)| {
-        let config: PhotoConfig = serde_json::from_str(&config_str).unwrap_or_default();
-        Photo {
-            id,
-            path: PathBuf::from(path),
-            missing: missing != 0,
-            active: active != 0,
-            caption,
-            config,
+    match row {
+        Some((id, path, missing, active, caption, config_str)) => {
+            let config: PhotoConfig = serde_json::from_str(&config_str).unwrap_or_default();
+            let tags = get_photo_tags(pool, id).await.unwrap_or_default();
+            Ok(Some(Photo {
+                id,
+                path: PathBuf::from(path),
+                missing: missing != 0,
+                active: active != 0,
+                caption,
+                config,
+                tags,
+            }))
         }
-    }))
+        None => Ok(None),
+    }
 }
 
 pub async fn get_photos_paginated(pool: &DbPool, page: i64, per_page: i64) -> Result<Vec<Photo>> {
@@ -217,9 +230,14 @@ pub async fn get_photos_paginated(pool: &DbPool, page: i64, per_page: i64) -> Re
         .fetch_all(pool)
         .await?;
 
+    // Get all tags for these photos in one query
+    let photo_ids: Vec<i64> = rows.iter().map(|(id, ..)| *id).collect();
+    let tags_map = get_tags_for_photos(pool, &photo_ids).await.unwrap_or_default();
+
     let mut photos = Vec::new();
     for (id, path, missing, active, caption, config_str) in rows {
         let config: PhotoConfig = serde_json::from_str(&config_str).unwrap_or_default();
+        let tags = tags_map.get(&id).cloned().unwrap_or_default();
         photos.push(Photo {
             id,
             path: PathBuf::from(path),
@@ -227,6 +245,7 @@ pub async fn get_photos_paginated(pool: &DbPool, page: i64, per_page: i64) -> Re
             active: active != 0,
             caption,
             config,
+            tags,
         });
     }
 
@@ -246,6 +265,116 @@ pub async fn set_photo_active(pool: &DbPool, id: i64, active: bool) -> Result<()
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+// ============================================================================
+// Tag Functions
+// ============================================================================
+
+pub async fn get_photo_tags(pool: &DbPool, photo_id: i64) -> Result<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT t.name FROM tags t 
+         INNER JOIN photo_tags pt ON t.id = pt.tag_id 
+         WHERE pt.photo_id = ? 
+         ORDER BY t.name"
+    )
+        .bind(photo_id)
+        .fetch_all(pool)
+        .await?;
+    
+    Ok(rows.into_iter().map(|(name,)| name).collect())
+}
+
+async fn get_tags_for_photos(pool: &DbPool, photo_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+    use std::collections::HashMap;
+    
+    if photo_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    
+    let placeholders = photo_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT pt.photo_id, t.name FROM tags t 
+         INNER JOIN photo_tags pt ON t.id = pt.tag_id 
+         WHERE pt.photo_id IN ({}) 
+         ORDER BY pt.photo_id, t.name",
+        placeholders
+    );
+    
+    let mut query_builder = sqlx::query_as::<_, (i64, String)>(&query);
+    for id in photo_ids {
+        query_builder = query_builder.bind(id);
+    }
+    let rows: Vec<(i64, String)> = query_builder.fetch_all(pool).await?;
+    
+    let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+    for (photo_id, tag_name) in rows {
+        map.entry(photo_id).or_default().push(tag_name);
+    }
+    
+    Ok(map)
+}
+
+pub async fn save_photo_tags(pool: &DbPool, photo_id: i64, tags: &[String]) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    
+    // Delete existing photo-tag relations
+    sqlx::query("DELETE FROM photo_tags WHERE photo_id = ?")
+        .bind(photo_id)
+        .execute(&mut *tx)
+        .await?;
+    
+    if tags.is_empty() {
+        tx.commit().await?;
+        return Ok(());
+    }
+    
+    // Normalize tags: trim, lowercase, deduplicate
+    let normalized_tags: Vec<String> = tags
+        .iter()
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    if normalized_tags.is_empty() {
+        tx.commit().await?;
+        return Ok(());
+    }
+    
+    // Insert new tags that don't exist (using INSERT OR IGNORE for efficiency)
+    for tag in &normalized_tags {
+        sqlx::query("INSERT OR IGNORE INTO tags (name) VALUES (?)")
+            .bind(tag)
+            .execute(&mut *tx)
+            .await?;
+    }
+    
+    // Get tag IDs for all normalized tags
+    let placeholders = normalized_tags.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT id, name FROM tags WHERE name IN ({})",
+        placeholders
+    );
+    
+    let mut query_builder = sqlx::query_as::<_, (i64, String)>(&query);
+    for tag in &normalized_tags {
+        query_builder = query_builder.bind(tag);
+    }
+    let tag_rows: Vec<(i64, String)> = query_builder.fetch_all(&mut *tx).await?;
+    
+    // Insert photo-tag relations
+    for (tag_id, _) in tag_rows {
+        sqlx::query("INSERT INTO photo_tags (photo_id, tag_id) VALUES (?, ?)")
+            .bind(photo_id)
+            .bind(tag_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    
+    tx.commit().await?;
     Ok(())
 }
 
@@ -414,8 +543,21 @@ pub struct IdleQuery {
 pub async fn idle_page(
     State(pool): State<DbPool>,
     Query(query): Query<IdleQuery>,
+    headers: HeaderMap,
 ) -> Html<String> {
+    let user_settings = settings::read_settings(&headers);
+    let filter_tags = user_settings.parsed_tags();
+
     let mut photos = get_all_photos(&pool).await.unwrap_or_default();
+
+    // Filter by tags if configured
+    if !filter_tags.is_empty() {
+        photos.retain(|p| {
+            p.tags.iter().any(|tag| {
+                filter_tags.contains(&tag.to_lowercase())
+            })
+        });
+    }
     
     // Shuffle photos
     let mut rng = rand::rng();
@@ -452,6 +594,12 @@ pub async fn idle_page(
         _ => "/".to_string(),
     };
 
+    // Display time in milliseconds (or null for default)
+    let display_time_js = match user_settings.display_time {
+        Some(seconds) => format!("{}", seconds as u32 * 1000),
+        None => "null".to_string(),
+    };
+
     let html = maud! {
         !DOCTYPE
         html {
@@ -462,7 +610,10 @@ pub async fn idle_page(
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script {
-                    (Raw::dangerously_create(&format!("window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";", photos_json, return_url)))
+                    (Raw::dangerously_create(&format!(
+                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};",
+                        photos_json, return_url, display_time_js
+                    )))
                 }
             }
             body style="padding:0;margin:0;overflow:hidden;background:#000;" {
@@ -790,6 +941,9 @@ pub async fn photo_edit(
         .replace('"', "\\\"")
         .replace('\n', "\\n");
     
+    // Join tags with commas for the input
+    let tags_str = photo.tags.join(", ");
+    
     // Determine which sliders should be disabled
     let zoom_disabled = if crop_type != "zoom" { "disabled" } else { "" };
     let expand_disabled = if crop_type == "letterbox" { "disabled" } else { "" };
@@ -825,8 +979,11 @@ pub async fn photo_edit(
         <form id="photo-config-form" method="post" action="{save_url}">
             <div class="photo-controls">
                 <div class="control-section">
-                    <h3>Caption</h3>
-                    <input type="text" id="caption" name="caption" value="{caption_escaped}" class="caption-input" oninput="updatePreview()">
+                    <h3>Caption &amp; Tags</h3>
+                    <div class="input-group">
+                        <label for="caption">Caption:</label>
+                        <input type="text" id="caption" name="caption" value="{caption_escaped}" class="caption-input" oninput="updatePreview()">
+                    </div>
                     <div class="caption-location-group">
                         <span class="caption-location-label">Position:</span>
                         <div class="radio-group-horizontal">
@@ -837,6 +994,10 @@ pub async fn photo_edit(
                             <input type="radio" id="caption_right" name="caption_location" value="right" {caption_right_checked} onchange="updatePreview()">
                             <label for="caption_right">Right</label>
                         </div>
+                    </div>
+                    <div class="input-group" style="margin-top: 12px;">
+                        <label for="tags">Tags:</label>
+                        <input type="text" id="tags" name="tags" value="{tags_str}" class="caption-input" placeholder="tag1, tag2, tag3">
                     </div>
                 </div>
                 
@@ -931,6 +1092,7 @@ pub async fn photo_edit(
         caption_escaped = caption_escaped,
         save_url = save_url,
         id = id,
+        tags_str = tags_str,
         letterbox_checked = if crop_type == "letterbox" { "checked" } else { "" },
         expand_checked = if crop_type == "expand" { "checked" } else { "" },
         zoom_checked = if crop_type == "zoom" { "checked" } else { "" },
@@ -1090,6 +1252,8 @@ pub struct PhotoConfigForm {
     #[serde(default)]
     caption: String,
     #[serde(default)]
+    tags: String,
+    #[serde(default)]
     caption_location: String,
     crop_type: String,
     #[serde(default)]
@@ -1143,8 +1307,19 @@ pub async fn save_photo_config(
         Some(form.caption.trim().to_string())
     };
 
+    // Parse tags from comma-separated string
+    let tags: Vec<String> = form.tags
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+
     if let Err(e) = update_photo(&pool, id, &config, caption.as_deref()).await {
         error!(id = id, error = %e, "Failed to save photo");
+    }
+
+    if let Err(e) = save_photo_tags(&pool, id, &tags).await {
+        error!(id = id, error = %e, "Failed to save photo tags");
     }
 
     Redirect::to(&format!("/photo/{}/edit", id))

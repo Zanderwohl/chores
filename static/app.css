@@ -1391,6 +1391,16 @@ a.daily-event-name:hover {
     margin-top: 24px;
 }
 
+.input-group {
+    margin-bottom: 8px;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
 .caption-input {
     width: 100%;
     padding: 8px;
@@ -1418,4 +1428,72 @@ a.daily-event-name:hover {
 
 .radio-group-horizontal label {
     margin-right: 12px;
+}
+
+/* Settings Page */
+.settings-page {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.settings-page-header {
+    margin-bottom: 24px;
+    font-size: 18px;
+}
+
+.settings-page-header a {
+    color: #000;
+}
+
+.settings-page h1 {
+    margin-bottom: 24px;
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 32px;
+}
+
+.settings-page fieldset {
+    margin-bottom: 24px;
+    padding: 16px;
+}
+
+.settings-page legend {
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.settings-page .form-group {
+    margin-bottom: 16px;
+}
+
+.settings-page .form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.settings-page .form-group input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    font-size: 16px;
+    border: 2px solid #000;
+    box-sizing: border-box;
+}
+
+.settings-page .form-help {
+    margin: 4px 0 0 0;
+    font-size: 14px;
+    color: #666;
+}
+
+.settings-page .form-actions {
+    margin-top: 24px;
+}
+
+.settings-page .error-message {
+    background: #fee;
+    border: 2px solid #c00;
+    padding: 12px;
+    margin-bottom: 16px;
+    color: #c00;
 }

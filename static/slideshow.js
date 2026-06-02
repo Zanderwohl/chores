@@ -3,7 +3,7 @@
     const PRELOAD_COUNT = 3;
     
     // Timing configuration
-    const DISPLAY_DURATION = 8000;           // ms to show each slide
+    const DISPLAY_DURATION = window.SLIDESHOW_DISPLAY_TIME || 8000;
     const TRANSITION_DURATION = 1500;        // ms for auto-advance crossfade
     const MANUAL_TRANSITION_DURATION = 1000; // ms for arrow key transitions
     

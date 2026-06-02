@@ -3,6 +3,7 @@ mod db;
 mod migrate;
 mod photos;
 mod schedule;
+mod settings;
 mod storybook;
 mod tasks;
 
@@ -149,6 +150,7 @@ async fn main() -> Result<()> {
         .route("/daily/{year}/{month}/{day}", get(tasks::daily_page))
         .route("/calendar", get(tasks::calendar_today))
         .route("/calendar/{year}/{month}", get(tasks::calendar_page))
+        .route("/settings", get(settings::settings_page).post(settings::save_settings))
         .nest("/storybook", storybook::router())
         .nest("/tasks", tasks::router())
         .with_state(pool)

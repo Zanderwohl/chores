@@ -43,3 +43,4 @@ rand = "0.9"
 image = "0.25"
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
+urlencoding = "2"

@@ -446,9 +446,11 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                 div .corner-links {
                     @if is_touch_mode() {
                         button .btn onclick="window.location.href='/idle?return=home'" { "Sleep" }
+                        button .btn onclick="window.location.href='/settings'" { "Settings" }
                     } @else {
                         a href="/idle?return=home" { "Sleep" }
                         a href="/photos" { "photos" }
+                        a href="/settings" { "settings" }
                     }
                 }
                 div .homepage id="homepage" {
@@ -777,12 +779,12 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
         r#"<a class="btn" href="/">Home</a>"#
     };
     
-    // Build sleep button with return params
+    // Build sleep button/link with return params
     let sleep_url = format!("/idle?return=daily&year={}&month={}&day={}", year, month, day);
     let sleep_button = if is_touch_mode() {
         format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
     } else {
-        String::new() // Non-touch mode doesn't show sleep button on subpages
+        format!(r#"<a href="{}">Sleep</a>"#, sleep_url)
     };
     
     // Build back link to calendar
@@ -1082,12 +1084,12 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
         r#"<a class="btn" href="/">Home</a>"#
     };
     
-    // Build sleep button with return params
+    // Build sleep button/link with return params
     let sleep_url = format!("/idle?return=calendar&year={}&month={}", year, month);
     let sleep_button = if is_touch_mode() {
         format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
     } else {
-        String::new() // Non-touch mode doesn't show sleep button on subpages
+        format!(r#"<a href="{}">Sleep</a>"#, sleep_url)
     };
     
     // Print header with month and year
