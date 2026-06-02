@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
             r#"INSERT INTO schedules (
                 id, kind,
                 ndays_days, ndays_time,
-                nweeks_weeks, nweeks_sunday, nweeks_monday, nweeks_tuesday,
+                nweeks_weeks, nweeks_offset, nweeks_sunday, nweeks_monday, nweeks_tuesday,
                 nweeks_wednesday, nweeks_thursday, nweeks_friday, nweeks_saturday, nweeks_time,
                 monthwise_days, monthwise_time,
                 weeks_of_month_weeks, weeks_of_month_sunday, weeks_of_month_monday,
@@ -91,13 +91,14 @@ async fn main() -> Result<()> {
                 weeks_of_month_friday, weeks_of_month_saturday, weeks_of_month_time,
                 certain_months_months, certain_months_days, certain_months_time,
                 once_datetime
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(s.id)
         .bind(&s.kind)
         .bind(s.ndays_days)
         .bind(&s.ndays_time)
         .bind(s.nweeks_weeks)
+        .bind(s.nweeks_offset)
         .bind(s.nweeks_sunday)
         .bind(s.nweeks_monday)
         .bind(s.nweeks_tuesday)

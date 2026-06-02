@@ -29,6 +29,7 @@ pub struct NDays {
 #[derive(Clone)]
 pub struct NWeeks {
     pub weeks: i32,
+    pub offset: i32,
     pub sub_schedule: DaysOfWeek,
 }
 

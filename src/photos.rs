@@ -7,6 +7,7 @@ use axum::{
 };
 use hypertext::{prelude::*, Raw};
 use image::imageops::FilterType;
+use image::DynamicImage;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -259,6 +260,24 @@ pub async fn get_photo_count(pool: &DbPool) -> Result<i64> {
     Ok(result.0)
 }
 
+pub async fn get_adjacent_photo_ids(pool: &DbPool, id: i64) -> Result<(Option<i64>, Option<i64>)> {
+    let prev: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM photos WHERE id < ? ORDER BY id DESC LIMIT 1"
+    )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    let next: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM photos WHERE id > ? ORDER BY id ASC LIMIT 1"
+    )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok((prev.map(|(pid,)| pid), next.map(|(nid,)| nid)))
+}
+
 pub async fn set_photo_active(pool: &DbPool, id: i64, active: bool) -> Result<()> {
     sqlx::query("UPDATE photos SET active = ? WHERE id = ?")
         .bind(active as i32)
@@ -449,6 +468,27 @@ pub async fn serve_photo(Path(path): Path<String>) -> impl IntoResponse {
 // Thumbnail Generation
 // ============================================================================
 
+fn read_exif_orientation(path: &std::path::Path) -> Option<u32> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf_reader = std::io::BufReader::new(file);
+    let exif = exif::Reader::new().read_from_container(&mut buf_reader).ok()?;
+    let orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
+    orientation.value.get_uint(0)
+}
+
+fn apply_exif_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
+    match orientation {
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.rotate90().fliph(),
+        6 => img.rotate90(),
+        7 => img.rotate270().fliph(),
+        8 => img.rotate270(),
+        _ => img,
+    }
+}
+
 fn ensure_thumbnail_sync(photo_path: &str) -> Result<PathBuf> {
     let thumb_filename = format!("{}.png", photo_path);
     let thumb_path = PathBuf::from("thumbnails").join(&thumb_filename);
@@ -458,7 +498,9 @@ fn ensure_thumbnail_sync(photo_path: &str) -> Result<PathBuf> {
     }
 
     let source_path = PathBuf::from("photos").join(photo_path);
+    let orientation = read_exif_orientation(&source_path).unwrap_or(1);
     let img = image::open(&source_path)?;
+    let img = apply_exif_orientation(img, orientation);
     
     let thumbnail = img.resize(256, 256, FilterType::Lanczos3);
     
@@ -617,8 +659,9 @@ pub async fn idle_page(
                 link rel="stylesheet" href="/static/app.css";
                 script {
                     (Raw::dangerously_create(&format!(
-                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};\nwindow.SLIDESHOW_SLEEP_TIME = {};",
-                        photos_json, return_url, display_time_js, sleep_time_js
+                        "window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";\nwindow.SLIDESHOW_DISPLAY_TIME = {};\nwindow.SLIDESHOW_SLEEP_TIME = {};\nwindow.SLIDESHOW_FILTER_TAGS = {};",
+                        photos_json, return_url, display_time_js, sleep_time_js,
+                        serde_json::to_string(&filter_tags).unwrap_or_else(|_| "[]".to_string())
                     )))
                 }
             }
@@ -948,6 +991,9 @@ pub async fn photo_edit(
 
     let save_url = format!("/photo/{}/config", id);
     
+    // Get adjacent photo IDs for navigation
+    let (prev_id, next_id) = get_adjacent_photo_ids(&pool, id).await.unwrap_or((None, None));
+    
     // Escape caption for embedding in HTML/JS
     let caption_escaped = photo.caption.as_deref().unwrap_or("")
         .replace('\\', "\\\\")
@@ -980,6 +1026,8 @@ pub async fn photo_edit(
     <script src="/static/auto-sleep.js"></script>
 </head>
 <body>
+    <button class="gutter-nav gutter-nav-left btn btn-default" id="nav-prev" onclick="navigateTo('prev')" {prev_disabled}>◀</button>
+    <button class="gutter-nav gutter-nav-right btn btn-default" id="nav-next" onclick="navigateTo('next')" {next_disabled}>▶</button>
     <div class="photo-edit-page">
         <div class="photo-edit-header">
             <a class="btn" href="/photos">← Back to Photos</a>
@@ -991,6 +1039,7 @@ pub async fn photo_edit(
         </div>
         
         <form id="photo-config-form" method="post" action="{save_url}">
+            <input type="hidden" id="redirect_to" name="redirect_to" value="">
             <div class="photo-controls">
                 <div class="control-section">
                     <h3>Caption &amp; Tags</h3>
@@ -1098,6 +1147,16 @@ pub async fn photo_edit(
         </form>
     </div>
     <script src="/static/photo-editor.js"></script>
+    <script>
+        window.PREV_PHOTO_ID = {prev_id_js};
+        window.NEXT_PHOTO_ID = {next_id_js};
+        function navigateTo(dir) {{
+            var targetId = (dir === 'prev') ? window.PREV_PHOTO_ID : window.NEXT_PHOTO_ID;
+            if (targetId === null) return;
+            document.getElementById('redirect_to').value = '/photo/' + targetId + '/edit';
+            document.getElementById('photo-config-form').submit();
+        }}
+    </script>
 </body>
 </html>"##,
         filename = filename,
@@ -1107,6 +1166,10 @@ pub async fn photo_edit(
         save_url = save_url,
         id = id,
         tags_str = tags_str,
+        prev_disabled = if prev_id.is_none() { "disabled" } else { "" },
+        next_disabled = if next_id.is_none() { "disabled" } else { "" },
+        prev_id_js = prev_id.map_or("null".to_string(), |id| id.to_string()),
+        next_id_js = next_id.map_or("null".to_string(), |id| id.to_string()),
         letterbox_checked = if crop_type == "letterbox" { "checked" } else { "" },
         expand_checked = if crop_type == "expand" { "checked" } else { "" },
         zoom_checked = if crop_type == "zoom" { "checked" } else { "" },
@@ -1285,6 +1348,8 @@ pub struct PhotoConfigForm {
     bg_b: f32,
     #[serde(default)]
     bg_blur_r: f32,
+    #[serde(default)]
+    redirect_to: String,
 }
 
 fn default_zoom() -> f32 {
@@ -1336,7 +1401,13 @@ pub async fn save_photo_config(
         error!(id = id, error = %e, "Failed to save photo tags");
     }
 
-    Redirect::to(&format!("/photo/{}/edit", id))
+    let target = if form.redirect_to.trim().is_empty() {
+        format!("/photo/{}/edit", id)
+    } else {
+        form.redirect_to.trim().to_string()
+    };
+
+    Redirect::to(&target)
 }
 
 pub async fn update_photo(pool: &DbPool, id: i64, config: &PhotoConfig, caption: Option<&str>) -> Result<()> {

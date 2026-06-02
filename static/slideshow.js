@@ -36,10 +36,6 @@
     };
     
     function init() {
-        if (photos.length === 0) {
-            return;
-        }
-        
         const container = document.getElementById('idle-content');
         if (!container) return;
         
@@ -52,7 +48,23 @@
             background: #000;
             cursor: pointer;
         `;
-        
+
+        if (photos.length === 0) {
+            var filterTags = window.SLIDESHOW_FILTER_TAGS || [];
+            var msg = document.createElement('div');
+            msg.style.cssText = 'color:#fff;font-family:sans-serif;font-size:18px;text-align:center;';
+            var text = 'No photos sent from server.';
+            if (filterTags.length > 0) {
+                text += '\nFilter tags: ' + filterTags.join(', ');
+            }
+            msg.style.whiteSpace = 'pre-line';
+            msg.textContent = text;
+            container.appendChild(msg);
+            document.addEventListener('keydown', handleKeydown);
+            container.addEventListener('click', goHome);
+            return;
+        }
+
         // Main display canvas
         canvas = document.createElement('canvas');
         canvas.width = window.innerWidth;
@@ -115,7 +127,7 @@
         const photo = photos[index];
         const img = preloadedImages.get(photo.url);
         const caption = photo.caption || '';
-        
+
         if (img && img.complete) {
             renderPhotoWithConfig(img, photo.config, caption, targetCtx, targetCtx.canvas);
         } else {
@@ -186,26 +198,27 @@
             const blurR = background.Gaussian.r || 10;
             targetCtx.save();
             targetCtx.filter = `blur(${blurR}px)`;
-            drawFillImage(img, targetCtx, targetCanvas);
+            drawFillImage(img, targetCtx, targetCanvas, blurR);
             targetCtx.restore();
         }
     }
     
-    function drawFillImage(img, targetCtx, targetCanvas) {
+    function drawFillImage(img, targetCtx, targetCanvas, expand) {
+        const pad = (expand || 0) + 5;
         const canvasRatio = targetCanvas.width / targetCanvas.height;
         const imgRatio = img.width / img.height;
         
         let drawWidth, drawHeight, drawX, drawY;
         
         if (imgRatio > canvasRatio) {
-            drawHeight = targetCanvas.height;
+            drawHeight = targetCanvas.height + pad * 2;
             drawWidth = drawHeight * imgRatio;
             drawX = (targetCanvas.width - drawWidth) / 2;
-            drawY = 0;
+            drawY = -pad;
         } else {
-            drawWidth = targetCanvas.width;
+            drawWidth = targetCanvas.width + pad * 2;
             drawHeight = drawWidth / imgRatio;
-            drawX = 0;
+            drawX = -pad;
             drawY = (targetCanvas.height - drawHeight) / 2;
         }
         

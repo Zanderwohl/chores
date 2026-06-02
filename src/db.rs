@@ -81,6 +81,7 @@ pub struct DbSchedule {
     pub ndays_time: Option<String>,
     // NWeeks
     pub nweeks_weeks: Option<i32>,
+    pub nweeks_offset: Option<i32>,
     pub nweeks_sunday: Option<i32>,
     pub nweeks_monday: Option<i32>,
     pub nweeks_tuesday: Option<i32>,
@@ -166,6 +167,7 @@ impl DbSchedule {
 
         let n_weeks = NWeeks {
             weeks: self.nweeks_weeks.unwrap_or(1),
+            offset: self.nweeks_offset.unwrap_or(0),
             sub_schedule: DaysOfWeek {
                 sunday: self.nweeks_sunday.unwrap_or(0) != 0,
                 monday: self.nweeks_monday.unwrap_or(0) != 0,
@@ -438,6 +440,7 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
                     ndays_days = ?,
                     ndays_time = ?,
                     nweeks_weeks = ?,
+                    nweeks_offset = ?,
                     nweeks_sunday = ?,
                     nweeks_monday = ?,
                     nweeks_tuesday = ?,
@@ -468,6 +471,7 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
             .bind(task.n_days.days)
             .bind(&ndays_time)
             .bind(task.n_weeks.weeks)
+            .bind(task.n_weeks.offset)
             .bind(task.n_weeks.sub_schedule.sunday as i32)
             .bind(task.n_weeks.sub_schedule.monday as i32)
             .bind(task.n_weeks.sub_schedule.tuesday as i32)
@@ -519,7 +523,7 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
         INSERT INTO schedules (
             kind,
             ndays_days, ndays_time,
-            nweeks_weeks, nweeks_sunday, nweeks_monday, nweeks_tuesday, nweeks_wednesday,
+            nweeks_weeks, nweeks_offset, nweeks_sunday, nweeks_monday, nweeks_tuesday, nweeks_wednesday,
             nweeks_thursday, nweeks_friday, nweeks_saturday, nweeks_time,
             monthwise_days, monthwise_time,
             weeks_of_month_weeks, weeks_of_month_sunday, weeks_of_month_monday,
@@ -527,13 +531,14 @@ pub async fn save_task(pool: &DbPool, task: &DemoTask) -> Result<i64> {
             weeks_of_month_friday, weeks_of_month_saturday, weeks_of_month_time,
             certain_months_months, certain_months_days, certain_months_time,
             once_datetime
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(kind_str)
     .bind(task.n_days.days)
     .bind(&ndays_time)
     .bind(task.n_weeks.weeks)
+    .bind(task.n_weeks.offset)
     .bind(task.n_weeks.sub_schedule.sunday as i32)
     .bind(task.n_weeks.sub_schedule.monday as i32)
     .bind(task.n_weeks.sub_schedule.tuesday as i32)

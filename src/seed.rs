@@ -94,6 +94,7 @@ impl SeedTask {
         
         let n_weeks = NWeeks {
             weeks: self.n_weeks.unwrap_or(1),
+            offset: 0,
             sub_schedule: days_of_week.clone(),
         };
         

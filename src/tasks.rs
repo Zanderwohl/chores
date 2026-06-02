@@ -183,6 +183,7 @@ pub fn get_demo_tasks() -> &'static DemoTasksMap {
                 n_days: default_n_days(),
                 n_weeks: NWeeks {
                     weeks: 1,
+                    offset: 0,
                     sub_schedule: DaysOfWeek {
                         sunday: false,
                         monday: true,
@@ -1253,7 +1254,11 @@ fn render_task_show_page(task: &DemoTask, completions: &[db::CompletionRecord], 
             .filter(|(_, active)| *active)
             .map(|(name, _)| *name)
             .collect();
-            format!("Every {} week(s) on {}", task.n_weeks.weeks, days.join(", "))
+            if task.n_weeks.weeks > 1 {
+                format!("Every {} weeks on {} (offset {})", task.n_weeks.weeks, days.join(", "), task.n_weeks.offset)
+            } else {
+                format!("Every week on {}", days.join(", "))
+            }
         }
         ScheduleKind::Monthwise => {
             let days_str = task.monthwise.days.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", ");
@@ -1606,7 +1611,16 @@ fn is_due_on_date(task: &DemoTask, date: chrono::NaiveDate) -> bool {
         }
         ScheduleKind::NWeeks => {
             let weekday = date.weekday();
-            task.n_weeks.sub_schedule.active(weekday)
+            if !task.n_weeks.sub_schedule.active(weekday) {
+                return false;
+            }
+            if task.n_weeks.weeks <= 1 {
+                return true;
+            }
+            let epoch = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+            let days_since = (date - epoch).num_days();
+            let week_num = days_since.div_euclid(7);
+            week_num.rem_euclid(task.n_weeks.weeks as i64) == task.n_weeks.offset as i64
         }
         ScheduleKind::Monthwise => {
             let day = date.day() as i32;
@@ -1842,6 +1856,8 @@ pub struct TaskForm {
     #[serde(default)]
     pub n_weeks_count: Option<i32>,
     #[serde(default)]
+    pub n_weeks_offset: Option<i32>,
+    #[serde(default)]
     pub n_weeks_time: Option<String>,
     #[serde(default)]
     pub dow_sun: Option<String>,
@@ -1953,8 +1969,16 @@ impl TaskForm {
             .as_ref()
             .and_then(|t| NaiveTime::parse_from_str(t, "%H:%M").ok())
             .unwrap_or(base_task.n_weeks.sub_schedule.time);
+        let n_weeks_weeks = self.n_weeks_count.unwrap_or(base_task.n_weeks.weeks);
+        let n_weeks_offset_raw = self.n_weeks_offset.unwrap_or(base_task.n_weeks.offset);
+        let n_weeks_offset_clamped = if n_weeks_weeks > 1 {
+            n_weeks_offset_raw.rem_euclid(n_weeks_weeks)
+        } else {
+            0
+        };
         let n_weeks = NWeeks {
-            weeks: self.n_weeks_count.unwrap_or(base_task.n_weeks.weeks),
+            weeks: n_weeks_weeks,
+            offset: n_weeks_offset_clamped,
             sub_schedule: DaysOfWeek {
                 sunday: self.dow_sun.is_some(),
                 monday: self.dow_mon.is_some(),
@@ -2473,6 +2497,7 @@ pub fn default_n_days() -> NDays {
 pub fn default_n_weeks() -> NWeeks {
     NWeeks {
         weeks: 1,
+        offset: 0,
         sub_schedule: DaysOfWeek {
             sunday: false,
             monday: true,
@@ -3121,8 +3146,10 @@ fn render_n_days_editor(task_id: &str, n_days: &NDays) -> String {
 
 fn render_n_weeks_editor(task_id: &str, n_weeks: &NWeeks) -> String {
     let count_id = format!("n-weeks-count-{}", task_id);
+    let offset_id = format!("n-weeks-offset-{}", task_id);
     let time_id = format!("n-weeks-time-{}", task_id);
     let time_value = n_weeks.sub_schedule.time.format("%H:%M").to_string();
+    let max_offset = if n_weeks.weeks > 1 { n_weeks.weeks - 1 } else { 0 };
 
     let sun_id = format!("dow-sun-{}", task_id);
     let mon_id = format!("dow-mon-{}", task_id);
@@ -3143,6 +3170,14 @@ fn render_n_weeks_editor(task_id: &str, n_weeks: &NWeeks) -> String {
                     min="1"
                     value=(n_weeks.weeks);
                 span { "week(s)" }
+                label for=(offset_id) { "offset" }
+                input
+                    type="number"
+                    id=(offset_id)
+                    name="n_weeks_offset"
+                    min="0"
+                    max=(max_offset)
+                    value=(n_weeks.offset);
             }
         }
         div .form-group {

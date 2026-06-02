@@ -1243,6 +1243,32 @@ a.daily-event-name:hover {
     flex-shrink: 0;
 }
 
+/* Photo Edit Gutter Navigation */
+.gutter-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+    font-size: 18px;
+    padding: 12px 10px;
+    min-width: 40px;
+    min-height: 40px;
+    cursor: pointer;
+}
+
+.gutter-nav:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.gutter-nav-left {
+    left: 16px;
+}
+
+.gutter-nav-right {
+    right: 16px;
+}
+
 /* Photo Edit Page */
 .photo-edit-page {
     max-width: 900px;

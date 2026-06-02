@@ -213,26 +213,27 @@
             const blurR = getValue('bg_blur_r');
             ctx.save();
             ctx.filter = `blur(${blurR}px)`;
-            drawFillImage();
+            drawFillImage(blurR);
             ctx.restore();
         }
     }
     
-    function drawFillImage() {
+    function drawFillImage(expand) {
+        const pad = (expand || 0) + 5;
         const canvasRatio = canvas.width / canvas.height;
         const imgRatio = img.width / img.height;
         
         let drawWidth, drawHeight, drawX, drawY;
         
         if (imgRatio > canvasRatio) {
-            drawHeight = canvas.height;
+            drawHeight = canvas.height + pad * 2;
             drawWidth = drawHeight * imgRatio;
             drawX = (canvas.width - drawWidth) / 2;
-            drawY = 0;
+            drawY = -pad;
         } else {
-            drawWidth = canvas.width;
+            drawWidth = canvas.width + pad * 2;
             drawHeight = drawWidth / imgRatio;
-            drawX = 0;
+            drawX = -pad;
             drawY = (canvas.height - drawHeight) / 2;
         }
         
