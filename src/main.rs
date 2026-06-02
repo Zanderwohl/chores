@@ -153,6 +153,8 @@ async fn main() -> Result<()> {
         .route("/calendar", get(tasks::calendar_today))
         .route("/calendar/{year}/{month}", get(tasks::calendar_page))
         .route("/settings", get(settings::settings_page).post(settings::save_settings))
+        .route("/settings/people", post(settings::add_person))
+        .route("/settings/people/{id}/delete", post(settings::delete_person))
         .nest("/storybook", storybook::router())
         .nest("/tasks", tasks::router())
         .with_state(pool)

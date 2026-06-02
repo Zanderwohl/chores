@@ -280,21 +280,49 @@ pub fn router() -> Router<DbPool> {
         .route("/{id}/edit-modal", get(task_edit_modal))
         .route("/{id}", get(task_show).post(save_task))
         .route("/{id}/schedule-type", post(change_schedule_type))
+        .route("/{id}/complete-picker", get(complete_picker))
         .route("/{id}/complete", post(complete_task))
         .route("/{id}/delete", post(delete_task))
         .route("/{id}/restore", post(restore_task))
         .route("/{id}/completions/{completion_id}", axum::routing::delete(delete_completion))
 }
 
+// GET /tasks/:id/complete-picker - Return person picker buttons
+async fn complete_picker(State(pool): State<DbPool>, Path(id): Path<String>) -> Html<String> {
+    let people = db::get_all_people(&pool).await.unwrap_or_default();
+    let buttons: String = people
+        .iter()
+        .map(|p| {
+            format!(
+                r##"<button class="btn person-picker-btn" hx-post="/tasks/{}/complete?person_id={}" hx-target="#homepage" hx-swap="outerHTML">{}</button>"##,
+                id, p.id, html_escape(&p.initials)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Html(format!(r#"<div class="person-picker">{}</div>"#, buttons))
+}
+
+#[derive(Deserialize)]
+pub struct CompleteQuery {
+    person_id: Option<i64>,
+}
+
 // POST /tasks/:id/complete - Mark a task as complete
-async fn complete_task(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
-    // Add completion record
-    match db::add_completion(&pool, &id).await {
-        Ok(_) => info!(task_id = %id, "Task completed"),
-        Err(e) => error!(task_id = %id, error = %e, "Error adding completion"),
+async fn complete_task(
+    State(pool): State<DbPool>,
+    Path(id): Path<String>,
+    Query(query): Query<CompleteQuery>,
+    headers: HeaderMap,
+) -> Html<String> {
+    if let Some(person_id) = query.person_id {
+        match db::add_completion(&pool, &id, person_id).await {
+            Ok(_) => info!(task_id = %id, person_id = person_id, "Task completed"),
+            Err(e) => error!(task_id = %id, error = %e, "Error adding completion"),
+        }
     }
 
-    // Re-render the entire homepage
     homepage(State(pool), headers).await
 }
 
@@ -374,51 +402,41 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
     let all_tasks: Vec<DemoTask> = db::get_all_tasks(&pool).await.unwrap_or_default();
     let now = Utc::now();
 
-    // Categorize tasks
+    // Categorize tasks; completed_tasks carries (task, who_completed_initials)
     let mut due_tasks = Vec::new();
     let mut alerting_tasks = Vec::new();
-    let mut completed_tasks = Vec::new();
+    let mut completed_tasks: Vec<(DemoTask, Option<String>)> = Vec::new();
     let mut other_tasks = Vec::new();
     let mut recurring_events = Vec::new();
     let mut inactive_tasks = Vec::new();
 
     for task in all_tasks {
-        // Check if task is inactive (before created_at or after deleted_at)
         let is_inactive = task.is_inactive();
         
         if is_inactive {
             inactive_tasks.push(task);
         } else if task.is_once_completed() && !task.completeable {
-            // Non-completeable Once tasks that have passed are "completed" - they don't recur
-            completed_tasks.push(task);
+            completed_tasks.push((task, None));
         } else if !task.completeable {
-            // Non-completeable tasks (events/reminders) have special logic:
-            // - Alerting: within alerting_time before due
-            // - Completed: due time passed but within past 1 day
-            // - Recurring Events: neither of the above
             let most_recent_due = task.most_recent_due_date();
             let time_since_due = now.signed_duration_since(most_recent_due);
             
             if task.is_alerting() {
-                // Within alerting window before due
                 alerting_tasks.push(task);
             } else if most_recent_due <= now && time_since_due <= Duration::days(1) {
-                // Due time passed but within past 1 day
-                completed_tasks.push(task);
+                completed_tasks.push((task, None));
             } else {
-                // Not currently relevant - show in Recurring Events
                 recurring_events.push(task);
             }
         } else {
-            // Completeable tasks - check completion record
-            let is_completed = if let Ok(Some(completion_time)) = db::get_latest_completion(&pool, &task.id).await {
-                completion_time > task.most_recent_due_date()
+            let (is_completed, completed_by) = if let Ok(Some((completion_time, initials))) = db::get_latest_completion(&pool, &task.id).await {
+                (completion_time > task.most_recent_due_date(), initials)
             } else {
-                false
+                (false, None)
             };
             
             if is_completed {
-                completed_tasks.push(task);
+                completed_tasks.push((task, completed_by));
             } else if task.is_due() {
                 due_tasks.push(task);
             } else if task.is_alerting() {
@@ -432,7 +450,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
     // Sort each category by next due date
     due_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
     alerting_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
-    completed_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
+    completed_tasks.sort_by(|a, b| a.0.next_due_date().cmp(&b.0.next_due_date()));
     other_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
     recurring_events.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
     inactive_tasks.sort_by(|a, b| a.name.cmp(&b.name));
@@ -479,7 +497,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                             h2 { "Due Tasks" }
                             div .task-card-grid {
                                 @for task in &due_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "due", is_touch)))
+                                    (Raw::dangerously_create(&render_task_card(task, "due", is_touch, None)))
                                 }
                             }
                         }
@@ -490,7 +508,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                             h2 { "Upcoming" }
                             div .task-card-grid {
                                 @for task in &alerting_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "alerting", is_touch)))
+                                    (Raw::dangerously_create(&render_task_card(task, "alerting", is_touch, None)))
                                 }
                             }
                         }
@@ -500,8 +518,8 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                         section .task-section {
                             h2 { "Completed" }
                             div .task-card-grid {
-                                @for task in &completed_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "completed", is_touch)))
+                                @for (task, initials) in &completed_tasks {
+                                    (Raw::dangerously_create(&render_task_card(task, "completed", is_touch, initials.as_deref())))
                                 }
                             }
                         }
@@ -512,7 +530,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                             h2 { "Other Tasks" }
                             div .task-card-grid {
                                 @for task in &other_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "normal", is_touch)))
+                                    (Raw::dangerously_create(&render_task_card(task, "normal", is_touch, None)))
                                 }
                             }
                         }
@@ -523,7 +541,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                             h2 { "Recurring Events" }
                             div .task-card-grid {
                                 @for task in &recurring_events {
-                                    (Raw::dangerously_create(&render_task_card(task, "event", is_touch)))
+                                    (Raw::dangerously_create(&render_task_card(task, "event", is_touch, None)))
                                 }
                             }
                         }
@@ -534,7 +552,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                             h2 { "Inactive" }
                             div .task-card-grid {
                                 @for task in &inactive_tasks {
-                                    (Raw::dangerously_create(&render_task_card(task, "inactive", is_touch)))
+                                    (Raw::dangerously_create(&render_task_card(task, "inactive", is_touch, None)))
                                 }
                             }
                         }
@@ -653,7 +671,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_tou
                 continue;
             }
             // Check if the task has been completed
-            let is_completed = if let Ok(Some(completion_time)) = db::get_latest_completion(pool, &task.id).await {
+            let is_completed = if let Ok(Some((completion_time, _))) = db::get_latest_completion(pool, &task.id).await {
                 completion_time > task.once.datetime
             } else {
                 false
@@ -1033,7 +1051,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: boo
                     continue;
                 }
                 // Check if the task has been completed
-                let is_completed = if let Ok(Some(completion_time)) = db::get_latest_completion(pool, &task.id).await {
+                let is_completed = if let Ok(Some((completion_time, _))) = db::get_latest_completion(pool, &task.id).await {
                     completion_time > task.once.datetime
                 } else {
                     false
@@ -1173,30 +1191,33 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: boo
     Html(html)
 }
 
-fn render_task_card(task: &DemoTask, status: &str, is_touch: bool) -> String {
+fn render_task_card(task: &DemoTask, status: &str, is_touch: bool, completed_by: Option<&str>) -> String {
     let status_class = format!("task-card task-card-{}", status);
     let due_str = task.time_as_readable_string();
-    let complete_url = format!("/tasks/{}/complete", task.id);
+    let picker_url = format!("/tasks/{}/complete-picker", task.id);
     let show_url = format!("/tasks/{}", task.id);
     let is_completed = status == "completed";
     let is_inactive = status == "inactive";
+    let complete_area_id = format!("task-{}-complete", task.id);
 
-    // Complete button - hide for inactive tasks and non-completeable tasks
     let complete_button = if is_inactive {
-        String::new() // No button for inactive tasks
+        String::new()
     } else if !task.completeable {
-        // Non-completeable tasks (events/reminders) don't have a complete button
         if is_completed {
             r#"<div class="task-card-completed-label">Event passed</div>"#.to_string()
         } else {
-            String::new() // No button for upcoming events
+            String::new()
         }
     } else if is_completed {
-        r#"<div class="task-card-completed-label">✓ Done</div>"#.to_string()
+        let label = match completed_by {
+            Some(initials) => format!("Done by {}", html_escape(initials)),
+            None => "✓ Done".to_string(),
+        };
+        format!(r#"<div class="task-card-completed-label">{}</div>"#, label)
     } else {
         format!(
-            r##"<button class="btn task-card-complete-btn" hx-post="{}" hx-target="#homepage" hx-swap="outerHTML">Complete</button>"##,
-            complete_url
+            r##"<div id="{}" class="task-card-complete-area"><button class="btn task-card-complete-btn" hx-get="{}" hx-target="#{}" hx-swap="innerHTML">Complete</button></div>"##,
+            complete_area_id, picker_url, complete_area_id
         )
     };
 
@@ -1550,12 +1571,16 @@ fn render_calendar(task: &DemoTask, completions: &[db::CompletionRecord]) -> Str
             // Find next due date after this one
             let next_due = find_next_due_after(task, due_datetime);
 
-            let is_completed = completions.iter().any(|c| {
+            let completed_record = completions.iter().find(|c| {
                 c.completed_at > due_datetime && c.completed_at <= next_due
             });
 
-            if is_completed {
-                content.push_str(r#"<div class="calendar-completed">✓ Completed</div>"#);
+            if let Some(c) = completed_record {
+                let label = match &c.person_initials {
+                    Some(initials) => format!("✓ Done by {}", html_escape(initials)),
+                    None => "✓ Completed".to_string(),
+                };
+                content.push_str(&format!(r#"<div class="calendar-completed">{}</div>"#, label));
             }
         }
 
@@ -1694,13 +1719,17 @@ fn render_completions_list(task_id: &str, completions: &[db::CompletionRecord]) 
             let tz_time = c.completed_at.with_timezone(&tz);
             let formatted = tz_time.format("%A, %B %-d, %Y at %H:%M").to_string();
             let delete_url = format!("/tasks/{}/completions/{}", task_id, c.id);
+            let by_str = match &c.person_initials {
+                Some(initials) => format!(" — {}", html_escape(initials)),
+                None => String::new(),
+            };
 
             format!(
                 r##"<li class="completion-item">
-                    <span class="completion-date">{}</span>
+                    <span class="completion-date">{}{}</span>
                     <button class="btn completion-delete" hx-delete="{}" hx-target="#task-show-page" hx-swap="outerHTML" hx-confirm="Delete this completion?">×</button>
                 </li>"##,
-                formatted, delete_url
+                formatted, by_str, delete_url
             )
         })
         .collect();

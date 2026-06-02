@@ -224,7 +224,7 @@ pub async fn get_photo(pool: &DbPool, id: i64) -> Result<Option<Photo>> {
 pub async fn get_photos_paginated(pool: &DbPool, page: i64, per_page: i64) -> Result<Vec<Photo>> {
     let offset = (page - 1) * per_page;
     let rows: Vec<(i64, String, i32, i32, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, path, missing, active, caption, config FROM photos ORDER BY path LIMIT ? OFFSET ?"
+        "SELECT id, path, missing, active, caption, config FROM photos ORDER BY id LIMIT ? OFFSET ?"
     )
         .bind(per_page)
         .bind(offset)

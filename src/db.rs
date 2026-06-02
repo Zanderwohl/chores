@@ -12,39 +12,88 @@ pub async fn init_db(database_url: &str) -> Result<DbPool> {
     Ok(pool)
 }
 
-// Add a completion record for a task
-pub async fn add_completion(pool: &DbPool, task_id: &str) -> Result<()> {
-    let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query("INSERT INTO completions (task_id, completed_at) VALUES (?, ?)")
-        .bind(task_id)
-        .bind(now)
+// ============================================================================
+// People
+// ============================================================================
+
+pub struct Person {
+    pub id: i64,
+    pub initials: String,
+}
+
+pub async fn get_all_people(pool: &DbPool) -> Result<Vec<Person>> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, initials FROM people ORDER BY initials"
+    )
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|(id, initials)| Person { id, initials }).collect())
+}
+
+pub async fn add_person(pool: &DbPool, initials: &str) -> Result<()> {
+    sqlx::query("INSERT INTO people (initials) VALUES (?)")
+        .bind(initials)
         .execute(pool)
         .await?;
     Ok(())
 }
 
-// Get the latest completion for a task
-pub async fn get_latest_completion(pool: &DbPool, task_id: &str) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
-    let result: Option<(String,)> = sqlx::query_as(
-        "SELECT completed_at FROM completions WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1"
+pub async fn delete_person(pool: &DbPool, person_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM people WHERE id = ?")
+        .bind(person_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ============================================================================
+// Completions
+// ============================================================================
+
+pub async fn add_completion(pool: &DbPool, task_id: &str, person_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO completions (task_id, completed_at, person_id) VALUES (?, ?, ?)")
+        .bind(task_id)
+        .bind(now)
+        .bind(person_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Returns (completed_at, person_initials) for the most recent completion.
+pub async fn get_latest_completion(pool: &DbPool, task_id: &str) -> Result<Option<(chrono::DateTime<chrono::Utc>, Option<String>)>> {
+    let result: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT c.completed_at, p.initials \
+         FROM completions c \
+         LEFT JOIN people p ON c.person_id = p.id \
+         WHERE c.task_id = ? \
+         ORDER BY c.completed_at DESC LIMIT 1"
     )
         .bind(task_id)
         .fetch_optional(pool)
         .await?;
 
-    Ok(result.and_then(|(s,)| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&chrono::Utc))))
+    Ok(result.and_then(|(s, initials)| {
+        chrono::DateTime::parse_from_rfc3339(&s)
+            .ok()
+            .map(|dt| (dt.with_timezone(&chrono::Utc), initials))
+    }))
 }
 
-// Completion record with ID for display
 pub struct CompletionRecord {
     pub id: i64,
     pub completed_at: chrono::DateTime<chrono::Utc>,
+    pub person_initials: Option<String>,
 }
 
-// Get all completions for a task (most recent first)
 pub async fn get_all_completions(pool: &DbPool, task_id: &str) -> Result<Vec<CompletionRecord>> {
-    let results: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT id, completed_at FROM completions WHERE task_id = ? ORDER BY completed_at DESC"
+    let results: Vec<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT c.id, c.completed_at, p.initials \
+         FROM completions c \
+         LEFT JOIN people p ON c.person_id = p.id \
+         WHERE c.task_id = ? \
+         ORDER BY c.completed_at DESC"
     )
         .bind(task_id)
         .fetch_all(pool)
@@ -52,12 +101,13 @@ pub async fn get_all_completions(pool: &DbPool, task_id: &str) -> Result<Vec<Com
 
     Ok(results
         .into_iter()
-        .filter_map(|(id, s)| {
+        .filter_map(|(id, s, initials)| {
             chrono::DateTime::parse_from_rfc3339(&s)
                 .ok()
                 .map(|dt| CompletionRecord {
                     id,
                     completed_at: dt.with_timezone(&chrono::Utc),
+                    person_initials: initials,
                 })
         })
         .collect())
