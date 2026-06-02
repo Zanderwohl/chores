@@ -33,6 +33,8 @@ pub struct Photo {
 pub struct PhotoConfig {
     pub crop: PhotoCrop,
     pub background: PhotoBackground,
+    #[serde(default)]
+    pub caption_location: CaptionLocation,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -49,6 +51,14 @@ pub enum PhotoBackground {
     Black,
     Color { r: f32, g: f32, b: f32 },
     Gaussian { r: f32 },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub enum CaptionLocation {
+    #[default]
+    Left,
+    Center,
+    Right,
 }
 
 // ============================================================================
@@ -392,7 +402,19 @@ struct SlideshowPhoto {
     config: PhotoConfig,
 }
 
-pub async fn idle_page(State(pool): State<DbPool>) -> Html<String> {
+#[derive(Deserialize)]
+pub struct IdleQuery {
+    #[serde(rename = "return")]
+    return_to: Option<String>,
+    year: Option<i32>,
+    month: Option<u32>,
+    day: Option<u32>,
+}
+
+pub async fn idle_page(
+    State(pool): State<DbPool>,
+    Query(query): Query<IdleQuery>,
+) -> Html<String> {
     let mut photos = get_all_photos(&pool).await.unwrap_or_default();
     
     // Shuffle photos
@@ -410,6 +432,25 @@ pub async fn idle_page(State(pool): State<DbPool>) -> Html<String> {
         .collect();
 
     let photos_json = serde_json::to_string(&slideshow_photos).unwrap_or_else(|_| "[]".to_string());
+    
+    // Build return URL based on query params
+    let return_url = match query.return_to.as_deref() {
+        Some("daily") => {
+            if let (Some(y), Some(m), Some(d)) = (query.year, query.month, query.day) {
+                format!("/daily/{}/{}/{}", y, m, d)
+            } else {
+                "/daily".to_string()
+            }
+        }
+        Some("calendar") => {
+            if let (Some(y), Some(m)) = (query.year, query.month) {
+                format!("/calendar/{}/{}", y, m)
+            } else {
+                "/calendar".to_string()
+            }
+        }
+        _ => "/".to_string(),
+    };
 
     let html = maud! {
         !DOCTYPE
@@ -421,7 +462,7 @@ pub async fn idle_page(State(pool): State<DbPool>) -> Html<String> {
                 link rel="stylesheet" href="/static/system.css";
                 link rel="stylesheet" href="/static/app.css";
                 script {
-                    (Raw::dangerously_create(&format!("window.SLIDESHOW_PHOTOS = {};", photos_json)))
+                    (Raw::dangerously_create(&format!("window.SLIDESHOW_PHOTOS = {};\nwindow.RETURN_URL = \"{}\";", photos_json, return_url)))
                 }
             }
             body style="padding:0;margin:0;overflow:hidden;background:#000;" {
@@ -733,6 +774,13 @@ pub async fn photo_edit(
         PhotoBackground::Color { r, g, b } => ("color", *r, *g, *b, 0.0),
         PhotoBackground::Gaussian { r } => ("gaussian", 0.0, 0.0, 0.0, *r),
     };
+    
+    // Extract current caption location
+    let caption_location = match &photo.config.caption_location {
+        CaptionLocation::Left => "left",
+        CaptionLocation::Center => "center",
+        CaptionLocation::Right => "right",
+    };
 
     let save_url = format!("/photo/{}/config", id);
     
@@ -779,6 +827,17 @@ pub async fn photo_edit(
                 <div class="control-section">
                     <h3>Caption</h3>
                     <input type="text" id="caption" name="caption" value="{caption_escaped}" class="caption-input" oninput="updatePreview()">
+                    <div class="caption-location-group">
+                        <span class="caption-location-label">Position:</span>
+                        <div class="radio-group-horizontal">
+                            <input type="radio" id="caption_left" name="caption_location" value="left" {caption_left_checked} onchange="updatePreview()">
+                            <label for="caption_left">Left</label>
+                            <input type="radio" id="caption_center" name="caption_location" value="center" {caption_center_checked} onchange="updatePreview()">
+                            <label for="caption_center">Center</label>
+                            <input type="radio" id="caption_right" name="caption_location" value="right" {caption_right_checked} onchange="updatePreview()">
+                            <label for="caption_right">Right</label>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="control-section">
@@ -878,6 +937,9 @@ pub async fn photo_edit(
         black_checked = if bg_type == "black" { "checked" } else { "" },
         color_checked = if bg_type == "color" { "checked" } else { "" },
         gaussian_checked = if bg_type == "gaussian" { "checked" } else { "" },
+        caption_left_checked = if caption_location == "left" { "checked" } else { "" },
+        caption_center_checked = if caption_location == "center" { "checked" } else { "" },
+        caption_right_checked = if caption_location == "right" { "checked" } else { "" },
         crop_z = crop_z,
         crop_dx = crop_dx,
         crop_dy = crop_dy,
@@ -1027,6 +1089,8 @@ pub async fn background_controls(Query(params): Query<BackgroundControlsQuery>) 
 pub struct PhotoConfigForm {
     #[serde(default)]
     caption: String,
+    #[serde(default)]
+    caption_location: String,
     crop_type: String,
     #[serde(default)]
     crop_dx: f32,
@@ -1066,7 +1130,13 @@ pub async fn save_photo_config(
         _ => PhotoBackground::Black,
     };
 
-    let config = PhotoConfig { crop, background };
+    let caption_location = match form.caption_location.as_str() {
+        "center" => CaptionLocation::Center,
+        "right" => CaptionLocation::Right,
+        _ => CaptionLocation::Left,
+    };
+
+    let config = PhotoConfig { crop, background, caption_location };
     let caption = if form.caption.trim().is_empty() {
         None
     } else {

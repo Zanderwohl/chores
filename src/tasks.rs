@@ -443,8 +443,14 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
                 script src="/static/htmx.min.js" {}
             }
             body {
-                a .idle-link href="/idle" { "idle" }
-                a .photos-link href="/photos" { "photos" }
+                div .corner-links {
+                    @if is_touch_mode() {
+                        button .btn onclick="window.location.href='/idle?return=home'" { "Sleep" }
+                    } @else {
+                        a href="/idle?return=home" { "Sleep" }
+                        a href="/photos" { "photos" }
+                    }
+                }
                 div .homepage id="homepage" {
                     div .page-header {
                         h1 { "Chores" }
@@ -771,6 +777,14 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
         r#"<a class="btn" href="/">Home</a>"#
     };
     
+    // Build sleep button with return params
+    let sleep_url = format!("/idle?return=daily&year={}&month={}&day={}", year, month, day);
+    let sleep_button = if is_touch_mode() {
+        format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
+    } else {
+        String::new() // Non-touch mode doesn't show sleep button on subpages
+    };
+    
     // Build back link to calendar
     let calendar_url = format!("/calendar/{}/{}", year, month);
     let back_link = if is_touch_mode() {
@@ -796,7 +810,10 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
         <div class="daily-back-link">{back_link}</div>
         <div class="page-header">
             <h1>Daily</h1>
-            {home_button}
+            <div class="page-header-buttons">
+                {sleep_button}
+                {home_button}
+            </div>
         </div>
         {controls_html}
         <div class="daily-date-display">
@@ -810,6 +827,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32) -> Htm
 </body>
 </html>"##,
         back_link = back_link,
+        sleep_button = sleep_button,
         home_button = home_button,
         controls_html = controls_html,
         display_date = display_date,
@@ -1064,6 +1082,14 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
         r#"<a class="btn" href="/">Home</a>"#
     };
     
+    // Build sleep button with return params
+    let sleep_url = format!("/idle?return=calendar&year={}&month={}", year, month);
+    let sleep_button = if is_touch_mode() {
+        format!(r#"<button class="btn" onclick="window.location.href='{}'">Sleep</button>"#, sleep_url)
+    } else {
+        String::new() // Non-touch mode doesn't show sleep button on subpages
+    };
+    
     // Print header with month and year
     let print_header = format!("{} {}", month_names[(month - 1) as usize], year);
     
@@ -1083,7 +1109,10 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
         <div class="print-header">{print_header}</div>
         <div class="page-header">
             <h1>Calendar</h1>
-            {home_button}
+            <div class="page-header-buttons">
+                {sleep_button}
+                {home_button}
+            </div>
         </div>
         {controls_html}
         <div class="calendar-grid-container">
@@ -1094,6 +1123,7 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32) -> Html<Strin
 </body>
 </html>"##,
         print_header = print_header,
+        sleep_button = sleep_button,
         home_button = home_button,
         controls_html = controls_html,
         cells = cells,

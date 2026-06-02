@@ -127,13 +127,14 @@
         
         const crop = config.crop || 'Letterbox';
         const background = config.background || 'Black';
+        const captionLocation = config.caption_location || 'Left';
         
         drawBackground(img, background, targetCtx, targetCanvas);
         drawCroppedImage(img, crop, targetCtx, targetCanvas);
-        drawCaption(caption, targetCtx, targetCanvas);
+        drawCaption(caption, captionLocation, targetCtx, targetCanvas);
     }
     
-    function drawCaption(caption, targetCtx, targetCanvas) {
+    function drawCaption(caption, captionLocation, targetCtx, targetCanvas) {
         if (!caption) return;
         
         const fontSize = Math.round(targetCanvas.width * 0.025); // 2.5% of canvas width
@@ -148,7 +149,19 @@
         targetCtx.shadowOffsetX = 3;
         targetCtx.shadowOffsetY = 3;
         targetCtx.textBaseline = 'bottom';
-        targetCtx.fillText(caption, padding, yPos);
+        
+        let xPos;
+        if (captionLocation === 'Center') {
+            const textWidth = targetCtx.measureText(caption).width;
+            xPos = (targetCanvas.width - textWidth) / 2;
+        } else if (captionLocation === 'Right') {
+            const textWidth = targetCtx.measureText(caption).width;
+            xPos = targetCanvas.width - textWidth - padding;
+        } else {
+            xPos = padding;
+        }
+        
+        targetCtx.fillText(caption, xPos, yPos);
         targetCtx.restore();
     }
     
@@ -387,7 +400,7 @@
     
     function goHome() {
         cancelAllTimers();
-        window.location.href = '/';
+        window.location.href = window.RETURN_URL || '/';
     }
     
     if (document.readyState === 'loading') {

@@ -73,3 +73,30 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Nix
+Run `nix flake lock` on the nix system later.
+
+```
+# flake.nix (on the NixOS host)
+{
+  inputs.chores.url = "github:you/chores";  # or a local path
+
+  outputs = { self, nixpkgs, chores, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        chores.nixosModules.default
+        {
+          services.chores = {
+            enable = true;
+            port = 3000;
+            timezone = "America/Chicago";
+            touchMode = true;
+            openFirewall = true;
+          };
+        }
+      ];
+    };
+  };
+}
+```

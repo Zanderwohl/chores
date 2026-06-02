@@ -309,6 +309,7 @@
         
         if (!caption) return;
         
+        const captionLocation = getRadioValue('caption_location') || 'left';
         const fontSize = Math.round(canvas.width * 0.025); // 2.5% of canvas width
         const padding = Math.round(canvas.width * 0.02);
         const yPos = canvas.height - (fontSize * 1.5);
@@ -321,7 +322,19 @@
         ctx.shadowOffsetX = 3;
         ctx.shadowOffsetY = 3;
         ctx.textBaseline = 'bottom';
-        ctx.fillText(caption, padding, yPos);
+        
+        let xPos;
+        if (captionLocation === 'center') {
+            const textWidth = ctx.measureText(caption).width;
+            xPos = (canvas.width - textWidth) / 2;
+        } else if (captionLocation === 'right') {
+            const textWidth = ctx.measureText(caption).width;
+            xPos = canvas.width - textWidth - padding;
+        } else {
+            xPos = padding;
+        }
+        
+        ctx.fillText(caption, xPos, yPos);
         ctx.restore();
     }
     

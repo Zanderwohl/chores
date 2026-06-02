@@ -1131,22 +1131,19 @@ a.daily-event-name:hover {
    Idle Screensaver
    ============================================================================ */
 
-.idle-link {
+.corner-links {
     position: fixed;
     top: 8px;
     left: 8px;
     z-index: 9999;
+    display: flex;
+    gap: 16px;
+}
+
+.corner-links a {
     color: #000;
     font-size: 14px;
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
-}
-
-.photos-link {
-    position: fixed;
-    top: 8px;
-    left: 40px;
-    z-index: 9999;
-    color: #000;
     font-size: 14px;
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
 }
@@ -1400,4 +1397,25 @@ a.daily-event-name:hover {
     font-size: 16px;
     border: 2px solid #000;
     box-sizing: border-box;
+}
+
+.caption-location-group {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.caption-location-label {
+    font-size: 16px;
+}
+
+.radio-group-horizontal {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.radio-group-horizontal label {
+    margin-right: 12px;
 }
