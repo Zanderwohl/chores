@@ -444,6 +444,7 @@ pub async fn homepage(State(pool): State<DbPool>) -> Html<String> {
             }
             body {
                 a .idle-link href="/idle" { "idle" }
+                a .photos-link href="/photos" { "photos" }
                 div .homepage id="homepage" {
                     div .page-header {
                         h1 { "Chores" }

@@ -1141,6 +1141,16 @@ a.daily-event-name:hover {
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
 }
 
+.photos-link {
+    position: fixed;
+    top: 8px;
+    left: 40px;
+    z-index: 9999;
+    color: #000;
+    font-size: 14px;
+    font-family: Chicago_12, Chicago, Geneva, sans-serif;
+}
+
 #idle-content {
     position: fixed;
     inset: 0;
@@ -1251,4 +1261,135 @@ a.daily-event-name:hover {
     display: block;
     margin: 0 auto;
     border: 2px solid #000;
+}
+
+/* Photo Show Page */
+.photo-show-page {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.photo-show-header {
+    margin-bottom: 24px;
+}
+
+.photo-show-page h1 {
+    margin-bottom: 24px;
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 24px;
+}
+
+.photo-show-content {
+    text-align: center;
+}
+
+.photo-show-image {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+    border: 2px solid #000;
+}
+
+/* Photo Editor Controls */
+.photo-preview-container {
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 */
+    position: relative;
+    background: #000;
+    border: 2px solid #000;
+    margin-bottom: 24px;
+}
+
+.photo-preview-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.photo-controls {
+    margin-top: 24px;
+}
+
+.control-section {
+    margin-bottom: 20px;
+    border: 2px solid #000;
+    padding: 16px;
+    background: #fff;
+}
+
+.control-section h3 {
+    margin: 0 0 12px 0;
+    font-family: Chicago, Chicago_12, Geneva, sans-serif;
+    font-size: 18px;
+}
+
+.radio-group-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.radio-group-vertical .field-row {
+    display: flex;
+    align-items: center;
+}
+
+.slider-params {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #ccc;
+}
+
+.slider-group {
+    margin: 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.slider-group label {
+    display: inline-block;
+    min-width: 80px;
+    font-size: 16px;
+}
+
+.slider-group input[type="range"] {
+    width: 200px;
+    flex-shrink: 0;
+}
+
+.slider-group span {
+    min-width: 50px;
+    font-family: monospace;
+    font-size: 14px;
+}
+
+.slider-group.disabled {
+    opacity: 0.5;
+}
+
+.slider-group.disabled label {
+    color: #888;
+}
+
+.slider-group.disabled input[type="range"] {
+    cursor: not-allowed;
+}
+
+.control-hint {
+    color: #666;
+    font-size: 14px;
+    font-style: italic;
+    margin: 0;
+}
+
+.control-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
 }
