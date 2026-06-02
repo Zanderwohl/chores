@@ -487,7 +487,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
 
                     @if !alerting_tasks.is_empty() {
                         section .task-section {
-                            h2 { "Upcoming Tasks" }
+                            h2 { "Upcoming" }
                             div .task-card-grid {
                                 @for task in &alerting_tasks {
                                     (Raw::dangerously_create(&render_task_card(task, "alerting", is_touch)))
