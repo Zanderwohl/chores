@@ -17,6 +17,22 @@ use tracing::{error, info};
 use crate::db::DbPool;
 use crate::settings;
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+fn js_string_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('<', "\\x3c")
+}
+
 // ============================================================================
 // Photo Types
 // ============================================================================
@@ -756,7 +772,7 @@ fn render_photo_list_item(photo: &Photo) -> String {
     let edit_url = format!("/photo/{}/edit", photo.id);
     let toggle_url = format!("/photo/{}/toggle-active", photo.id);
     let checked = if photo.active { "checked" } else { "" };
-    let caption_display = photo.caption.as_deref().unwrap_or("");
+    let caption_display = html_escape(photo.caption.as_deref().unwrap_or(""));
 
     format!(
         r##"<li class="photo-list-item" id="photo-row-{}">
@@ -988,14 +1004,12 @@ pub async fn photo_edit(
     // Get adjacent photo IDs for navigation
     let (prev_id, next_id) = get_adjacent_photo_ids(&pool, id).await.unwrap_or((None, None));
     
-    // Escape caption for embedding in HTML/JS
-    let caption_escaped = photo.caption.as_deref().unwrap_or("")
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n");
+    let caption_raw = photo.caption.as_deref().unwrap_or("");
+    let caption_html = html_escape(caption_raw);
+    let caption_js = js_string_escape(caption_raw);
     
-    // Join tags with commas for the input
     let tags_str = photo.tags.join(", ");
+    let tags_html = html_escape(&tags_str);
     
     // Determine which sliders should be disabled
     let zoom_disabled = if crop_type != "zoom" { "disabled" } else { "" };
@@ -1015,7 +1029,7 @@ pub async fn photo_edit(
     <script>
         window.PHOTO_URL = "{photo_url}";
         window.PHOTO_CONFIG = {config_json};
-        window.PHOTO_CAPTION = "{caption_escaped}";
+        window.PHOTO_CAPTION = "{caption_js}";
     </script>
     <script src="/static/auto-sleep.js"></script>
 </head>
@@ -1039,7 +1053,7 @@ pub async fn photo_edit(
                     <h3>Caption &amp; Tags</h3>
                     <div class="input-group">
                         <label for="caption">Caption:</label>
-                        <input type="text" id="caption" name="caption" value="{caption_escaped}" class="caption-input" oninput="updatePreview()">
+                        <input type="text" id="caption" name="caption" value="{caption_html}" class="caption-input" oninput="updatePreview()">
                     </div>
                     <div class="caption-location-group">
                         <span class="caption-location-label">Position:</span>
@@ -1054,7 +1068,7 @@ pub async fn photo_edit(
                     </div>
                     <div class="input-group" style="margin-top: 12px;">
                         <label for="tags">Tags:</label>
-                        <input type="text" id="tags" name="tags" value="{tags_str}" class="caption-input" placeholder="tag1, tag2, tag3">
+                        <input type="text" id="tags" name="tags" value="{tags_html}" class="caption-input" placeholder="tag1, tag2, tag3">
                     </div>
                 </div>
                 
@@ -1156,10 +1170,11 @@ pub async fn photo_edit(
         filename = filename,
         photo_url = photo_url,
         config_json = config_json,
-        caption_escaped = caption_escaped,
+        caption_html = caption_html,
+        caption_js = caption_js,
         save_url = save_url,
         id = id,
-        tags_str = tags_str,
+        tags_html = tags_html,
         prev_disabled = if prev_id.is_none() { "disabled" } else { "" },
         next_disabled = if next_id.is_none() { "disabled" } else { "" },
         prev_id_js = prev_id.map_or("null".to_string(), |id| id.to_string()),

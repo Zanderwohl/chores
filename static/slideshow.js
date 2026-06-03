@@ -26,7 +26,6 @@
     
     // Blend function - swappable closure for different transition effects
     const blendFn = function(mainCtx, currentCanvas, nextCanvas, progress) {
-        // Simple crossfade using globalAlpha
         mainCtx.globalAlpha = 1;
         mainCtx.drawImage(currentCanvas, 0, 0);
         mainCtx.globalAlpha = progress;
@@ -383,9 +382,11 @@
         renderSlide(targetIndex, offscreenCtx, function() {
             preloadAhead();
             
-            const startTime = performance.now();
+            var startTime = null;
             
             function animate(currentTime) {
+                if (startTime === null) startTime = currentTime;
+                
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
                 

@@ -245,7 +245,7 @@ fn render_settings_page(settings: &Settings, people: &[db::Person], error: Optio
                                     name="sleep_time"
                                     value=(sleep_time_value)
                                     placeholder="indefinite";
-                                p .form-help { "Total slideshow duration before returning home. Leave blank for indefinite." }
+                                p .form-help { "Idle time before slideshow starts. Leave blank for indefinite." }
                             }
 
                             div .form-group {
