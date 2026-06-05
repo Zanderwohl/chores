@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS photo_blobs (
+    photo_id INTEGER PRIMARY KEY,
+    data BLOB NOT NULL,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+);

@@ -24,6 +24,18 @@ path = "src/backup.rs"
 name = "migrate"
 path = "src/bin/migrate.rs"
 
+[[bin]]
+name = "pack"
+path = "src/pack.rs"
+
+[[bin]]
+name = "unpack"
+path = "src/unpack.rs"
+
+[[bin]]
+name = "shrink"
+path = "src/shrink.rs"
+
 [dependencies]
 axum = { version = "0.8.7", features = ["multipart"] }
 tokio = { version = "1.48.0", features = ["default", "rt-multi-thread"] }
