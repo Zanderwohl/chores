@@ -15,6 +15,7 @@
     
     // Gesture state
     let gestureStartX = null;
+    let gestureStartY = null;
     let gestureStartTime = null;
     let gesturePointerId = null;
     
@@ -438,6 +439,7 @@
     
     function handlePointerDown(e) {
         gestureStartX = e.clientX;
+        gestureStartY = e.clientY;
         gestureStartTime = Date.now();
         gesturePointerId = e.pointerId;
         e.target.setPointerCapture(e.pointerId);
@@ -447,15 +449,22 @@
         if (gesturePointerId !== e.pointerId) return;
         
         const deltaX = e.clientX - gestureStartX;
+        const deltaY = e.clientY - gestureStartY;
         const duration = Date.now() - gestureStartTime;
         
         gestureStartX = null;
+        gestureStartY = null;
         gestureStartTime = null;
         gesturePointerId = null;
         
-        if (duration < WAKE_MAX_DURATION && Math.abs(deltaX) < WAKE_MAX_DISTANCE) {
-            console.log('[slideshow] stopping: tap detected (duration=%dms, deltaX=%dpx)', duration, deltaX);
+        if (duration < WAKE_MAX_DURATION && Math.abs(deltaX) < WAKE_MAX_DISTANCE && Math.abs(deltaY) < WAKE_MAX_DISTANCE) {
+            console.log('[slideshow] stopping: tap detected (duration=%dms, deltaX=%dpx, deltaY=%dpx)', duration, deltaX, deltaY);
             goHome();
+        } else if (deltaY < -SWIPE_MIN_DISTANCE && Math.abs(deltaX) < SWIPE_MIN_DISTANCE && photos.length > 0) {
+            const photo = photos[currentIndex];
+            console.log('[slideshow] swipe up - going to edit photo %d', photo.id);
+            cancelAllTimers();
+            window.location.href = '/photo/' + photo.id + '/edit';
         } else if (Math.abs(deltaX) >= SWIPE_MIN_DISTANCE && photos.length > 0) {
             if (isTransitioning) {
                 finishTransitionInstantly();
@@ -474,6 +483,7 @@
     function handlePointerCancel(e) {
         if (gesturePointerId === e.pointerId) {
             gestureStartX = null;
+            gestureStartY = null;
             gestureStartTime = null;
             gesturePointerId = null;
         }

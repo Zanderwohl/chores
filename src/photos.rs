@@ -584,6 +584,7 @@ pub async fn serve_thumbnail(Path(path): Path<String>) -> impl IntoResponse {
 
 #[derive(Serialize)]
 struct SlideshowPhoto {
+    id: i64,
     url: String,
     caption: Option<String>,
     config: PhotoConfig,
@@ -625,6 +626,7 @@ pub async fn idle_page(
     let slideshow_photos: Vec<SlideshowPhoto> = photos
         .iter()
         .map(|p| SlideshowPhoto {
+            id: p.id,
             url: format!("/photos/{}", p.path.display()),
             caption: p.caption.clone(),
             config: p.config.clone(),
