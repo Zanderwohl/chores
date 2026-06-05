@@ -17,7 +17,7 @@ use anyhow::Result;
 use chrono::Datelike;
 use clap::Parser;
 use db::{DbSchedule, DbTask};
-use dotenvy::EnvLoader;
+use std::collections::HashMap;
 
 #[derive(Parser, Debug)]
 #[command(name = "backup")]
@@ -36,8 +36,10 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Load .env file
-    let dotenv = EnvLoader::new().load().unwrap_or_default();
+    let dotenv: HashMap<String, String> = dotenvy::dotenv_iter()
+        .ok()
+        .map(|iter| iter.filter_map(|item| item.ok()).collect())
+        .unwrap_or_default();
 
     // Get source database URL
     let source_url = args

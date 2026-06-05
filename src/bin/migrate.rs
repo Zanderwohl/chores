@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use dotenvy::EnvLoader;
 use sqlx::sqlite::SqlitePool;
+use std::collections::HashMap;
 
 #[path = "../migrate.rs"]
 mod migrate;
@@ -46,7 +46,10 @@ enum Command {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let dotenv = EnvLoader::new().load().unwrap_or_default();
+    let dotenv: HashMap<String, String> = dotenvy::dotenv_iter()
+        .ok()
+        .map(|iter| iter.filter_map(|item| item.ok()).collect())
+        .unwrap_or_default();
 
     let database_file = args
         .db

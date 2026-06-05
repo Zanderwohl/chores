@@ -12,13 +12,13 @@ mod settings;
 mod tasks;
 
 use anyhow::Result;
-use dotenvy::EnvLoader;
+use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load .env file
-    let dotenv = EnvLoader::new()
-        .load()
+    let dotenv: HashMap<String, String> = dotenvy::dotenv_iter()
+        .ok()
+        .map(|iter| iter.filter_map(|item| item.ok()).collect())
         .unwrap_or_default();
     
     // Get database URL

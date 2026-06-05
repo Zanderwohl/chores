@@ -14,6 +14,7 @@ mod tasks;
 use anyhow::Result;
 use chrono::NaiveTime;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 
 use crate::schedule::{CertainMonths, DaysOfWeek, Monthwise, NDays, NWeeks, Once, ScheduleKind, WeeksOfMonth};
@@ -158,7 +159,7 @@ impl SeedTask {
 /// 3. Default value
 fn get_config(
     key: &str,
-    dotenv: &dotenvy::EnvMap,
+    dotenv: &HashMap<String, String>,
     default: &str,
 ) -> String {
     std::env::var(key).ok()
@@ -170,9 +171,9 @@ fn get_config(
 async fn main() -> Result<()> {
     println!("🌱 Seeding database...");
     
-    // Load .env file (just read, don't modify environment)
-    let dotenv = dotenvy::EnvLoader::new()
-        .load()
+    let dotenv: HashMap<String, String> = dotenvy::dotenv_iter()
+        .ok()
+        .map(|iter| iter.filter_map(|item| item.ok()).collect())
         .unwrap_or_default();
     
     // Initialize timezone (used by tasks module)

@@ -11,7 +11,7 @@ use anyhow::Result;
 use axum::{routing::{get, post}, Router};
 use axum::routing::get_service;
 use clap::Parser;
-use dotenvy::{EnvLoader, EnvMap};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tower_http::services::{ServeDir, ServeFile};
@@ -51,7 +51,7 @@ struct Args {
 fn get_config(
     key: &str,
     cli_value: Option<String>,
-    dotenv: &EnvMap,
+    dotenv: &HashMap<String, String>,
     default: &str,
 ) -> String {
     cli_value
@@ -81,9 +81,9 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
         .init();
 
-    // Load .env file (just read, don't modify environment)
-    let dotenv = EnvLoader::new()
-        .load()
+    let dotenv: HashMap<String, String> = dotenvy::dotenv_iter()
+        .ok()
+        .map(|iter| iter.filter_map(|item| item.ok()).collect())
         .unwrap_or_default();
 
     // Parse CLI arguments
