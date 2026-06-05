@@ -58,7 +58,8 @@ in
 
       serviceConfig = {
         Type = "simple";
-        DynamicUser = true;
+        User = "chores";
+        Group = "chores";
         StateDirectory = "chores";
         WorkingDirectory = cfg.dataDir;
         ExecStartPre = let
