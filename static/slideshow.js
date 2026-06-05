@@ -8,6 +8,16 @@
     const TRANSITION_DURATION = 1500;        // ms for auto-advance crossfade
     const MANUAL_TRANSITION_DURATION = 1000; // ms for arrow key transitions
     
+    // Gesture configuration
+    const WAKE_MAX_DURATION = 500;   // ms - max press-to-release time for tap to wake
+    const WAKE_MAX_DISTANCE = 30;    // px - max horizontal movement to count as tap
+    const SWIPE_MIN_DISTANCE = 50;   // px - minimum horizontal drag to trigger navigation
+    
+    // Gesture state
+    let gestureStartX = null;
+    let gestureStartTime = null;
+    let gesturePointerId = null;
+    
     // State
     let currentIndex = 0;
     let canvas = null;
@@ -47,7 +57,8 @@
             align-items: center;
             justify-content: center;
             background: #000;
-            cursor: pointer;
+            cursor: none;
+            touch-action: none;
         `;
 
         if (photos.length === 0) {
@@ -63,10 +74,7 @@
             msg.textContent = text;
             container.appendChild(msg);
             document.addEventListener('keydown', handleKeydown);
-            container.addEventListener('click', function() {
-                console.log('[slideshow] stopping: click on empty slideshow (no photos)');
-                goHome();
-            });
+            setupGestureListeners(container);
             return;
         }
 
@@ -95,10 +103,7 @@
         
         window.addEventListener('resize', handleResize);
         document.addEventListener('keydown', handleKeydown);
-        container.addEventListener('click', function() {
-            console.log('[slideshow] stopping: click on slideshow (photo %d/%d)', currentIndex + 1, photos.length);
-            goHome();
-        });
+        setupGestureListeners(container);
         
         // Render first photo and start auto-advance
         renderSlide(currentIndex, ctx);
@@ -429,6 +434,55 @@
         
         isTransitioning = false;
         transitionTargetIndex = null;
+    }
+    
+    function handlePointerDown(e) {
+        gestureStartX = e.clientX;
+        gestureStartTime = Date.now();
+        gesturePointerId = e.pointerId;
+        e.target.setPointerCapture(e.pointerId);
+    }
+    
+    function handlePointerUp(e) {
+        if (gesturePointerId !== e.pointerId) return;
+        
+        const deltaX = e.clientX - gestureStartX;
+        const duration = Date.now() - gestureStartTime;
+        
+        gestureStartX = null;
+        gestureStartTime = null;
+        gesturePointerId = null;
+        
+        if (duration < WAKE_MAX_DURATION && Math.abs(deltaX) < WAKE_MAX_DISTANCE) {
+            console.log('[slideshow] stopping: tap detected (duration=%dms, deltaX=%dpx)', duration, deltaX);
+            goHome();
+        } else if (Math.abs(deltaX) >= SWIPE_MIN_DISTANCE && photos.length > 0) {
+            if (isTransitioning) {
+                finishTransitionInstantly();
+                startDisplayTimer();
+            } else {
+                cancelAllTimers();
+                const targetIndex = deltaX < 0
+                    ? (currentIndex + 1) % photos.length
+                    : (currentIndex - 1 + photos.length) % photos.length;
+                console.log('[slideshow] swipe %s (deltaX=%dpx)', deltaX < 0 ? 'left→next' : 'right→prev', deltaX);
+                startTransition(targetIndex, MANUAL_TRANSITION_DURATION);
+            }
+        }
+    }
+    
+    function handlePointerCancel(e) {
+        if (gesturePointerId === e.pointerId) {
+            gestureStartX = null;
+            gestureStartTime = null;
+            gesturePointerId = null;
+        }
+    }
+    
+    function setupGestureListeners(container) {
+        container.addEventListener('pointerdown', handlePointerDown);
+        container.addEventListener('pointerup', handlePointerUp);
+        container.addEventListener('pointercancel', handlePointerCancel);
     }
     
     function handleKeydown(e) {

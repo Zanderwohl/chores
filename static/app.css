@@ -1180,7 +1180,8 @@ a.daily-event-name:hover {
     position: fixed;
     inset: 0;
     background: repeating-conic-gradient(#000 0% 25%, #f0f 25% 50%) 0 0 / 80px 80px;
-    cursor: pointer;
+    cursor: none;
+    touch-action: none;
 }
 
 /* ============================================================================
