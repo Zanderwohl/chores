@@ -2,6 +2,7 @@
 
 body {
     padding: 40px;
+    padding-top: 90px;
     background: #fff;
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
     font-size: 18px;
@@ -1161,8 +1162,8 @@ a.daily-event-name:hover {
 
 .corner-links {
     position: fixed;
-    top: 8px;
-    left: 8px;
+    top: 58px;
+    left: 58px;
     z-index: 9999;
     display: flex;
     gap: 16px;
