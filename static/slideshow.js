@@ -1,7 +1,16 @@
 (function() {
-    const photos = window.SLIDESHOW_PHOTOS || [];
+    let photos = window.SLIDESHOW_PHOTOS || [];
     const PRELOAD_COUNT = 8;
     const KEEP_BEHIND = 2;
+
+    // Refill: fetch more photos from the server as we approach the end of the
+    // current queue. This keeps the first paint fast and lets the set drift with
+    // the time of day (the server re-evaluates time-of-day tags per request).
+    const REFILL_URL = '/idle/photos';
+    const REFILL_THRESHOLD = 3;  // refill when within this many slides of the end
+    const REFILL_COUNT = 10;
+    const MAX_QUEUE = 100;       // cap retained entries; bounds backward-rewind history
+    let isRefilling = false;
     
     // Timing configuration
     const DISPLAY_DURATION = window.SLIDESHOW_DISPLAY_TIME || 8000;
@@ -109,6 +118,7 @@
         // Render first photo and start auto-advance
         renderSlide(currentIndex, ctx);
         preloadAhead();
+        maybeRefill();
         startDisplayTimer();
         
     }
@@ -314,11 +324,42 @@
         }
     }
     
+    function maybeRefill() {
+        if (isRefilling) return;
+        if (currentIndex < photos.length - REFILL_THRESHOLD) return;
+        isRefilling = true;
+        const last = photos.length ? photos[photos.length - 1].id : '';
+        fetch(REFILL_URL + '?count=' + REFILL_COUNT + '&exclude=' + last, { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(batch) {
+                if (Array.isArray(batch) && batch.length) {
+                    photos.push.apply(photos, batch);
+                    trimQueue();
+                }
+            })
+            .catch(function(e) { console.warn('[slideshow] refill failed', e); })
+            .finally(function() { isRefilling = false; });
+    }
+
+    // Cap the queue at MAX_QUEUE entries by dropping the oldest (front) slides.
+    // Only trims slides safely behind the current one (keeps KEEP_BEHIND for
+    // blending/rewind), and shifts the live indices to match.
+    function trimQueue() {
+        const overflow = photos.length - MAX_QUEUE;
+        if (overflow <= 0) return;
+        const removable = Math.min(overflow, currentIndex - KEEP_BEHIND);
+        if (removable <= 0) return;
+        photos.splice(0, removable);
+        currentIndex -= removable;
+        if (transitionTargetIndex !== null) transitionTargetIndex -= removable;
+    }
+
     function preloadAhead() {
         for (let i = 1; i <= PRELOAD_COUNT; i++) {
-            const nextIndex = (currentIndex + i) % photos.length;
+            const nextIndex = currentIndex + i;
+            if (nextIndex >= photos.length) break;
             const photo = photos[nextIndex];
-            
+
             if (!preloadedImages.has(photo.url)) {
                 const img = new Image();
                 img.src = photo.url;
@@ -327,15 +368,15 @@
         }
         evictDistant();
     }
-    
+
     function evictDistant() {
         const keepIndices = new Set();
         keepIndices.add(currentIndex);
         for (let i = 1; i <= KEEP_BEHIND; i++) {
-            keepIndices.add((currentIndex - i + photos.length) % photos.length);
+            if (currentIndex - i >= 0) keepIndices.add(currentIndex - i);
         }
         for (let i = 1; i <= PRELOAD_COUNT; i++) {
-            keepIndices.add((currentIndex + i) % photos.length);
+            if (currentIndex + i < photos.length) keepIndices.add(currentIndex + i);
         }
         
         const keepUrls = new Set();
@@ -368,7 +409,14 @@
         
         displayTimerId = setTimeout(function() {
             displayTimerId = null;
-            const nextIndex = (currentIndex + 1) % photos.length;
+            const nextIndex = currentIndex + 1;
+            if (nextIndex >= photos.length) {
+                // Ran out before a refill landed: hold on this slide, nudge a
+                // refill, and re-check after another display interval.
+                maybeRefill();
+                startDisplayTimer();
+                return;
+            }
             startTransition(nextIndex, TRANSITION_DURATION);
         }, DISPLAY_DURATION);
     }
@@ -407,10 +455,13 @@
                     isTransitioning = false;
                     transitionTargetIndex = null;
                     currentIndex = targetIndex;
-                    
+
                     // Ensure final frame is fully rendered
                     ctx.drawImage(offscreenCanvas, 0, 0);
-                    
+
+                    // Top up the queue if we're nearing the end
+                    maybeRefill();
+
                     // Start next display timer
                     startDisplayTimer();
                 }
@@ -470,12 +521,18 @@
                 finishTransitionInstantly();
                 startDisplayTimer();
             } else {
+                const forward = deltaX < 0;
+                const targetIndex = forward
+                    ? currentIndex + 1
+                    : currentIndex - 1;
+                if (targetIndex < 0 || targetIndex >= photos.length) {
+                    if (forward) maybeRefill();
+                    return;
+                }
                 cancelAllTimers();
-                const targetIndex = deltaX < 0
-                    ? (currentIndex + 1) % photos.length
-                    : (currentIndex - 1 + photos.length) % photos.length;
-                console.log('[slideshow] swipe %s (deltaX=%dpx)', deltaX < 0 ? 'left→next' : 'right→prev', deltaX);
+                console.log('[slideshow] swipe %s (deltaX=%dpx)', forward ? 'left→next' : 'right→prev', deltaX);
                 startTransition(targetIndex, MANUAL_TRANSITION_DURATION);
+                if (forward) maybeRefill();
             }
         }
     }
@@ -504,11 +561,17 @@
                 startDisplayTimer();
             } else {
                 // Not transitioning, start a new transition
+                const forward = e.key === 'ArrowRight';
+                const targetIndex = forward
+                    ? currentIndex + 1
+                    : currentIndex - 1;
+                if (targetIndex < 0 || targetIndex >= photos.length) {
+                    if (forward) maybeRefill();
+                    return;
+                }
                 cancelAllTimers();
-                const targetIndex = e.key === 'ArrowRight'
-                    ? (currentIndex + 1) % photos.length
-                    : (currentIndex - 1 + photos.length) % photos.length;
                 startTransition(targetIndex, MANUAL_TRANSITION_DURATION);
+                if (forward) maybeRefill();
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();

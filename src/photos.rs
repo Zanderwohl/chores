@@ -4,6 +4,7 @@ use axum::{
     extract::{Form, Multipart, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
+    Json,
 };
 use hypertext::{prelude::*, Raw};
 use image::imageops::FilterType;
@@ -582,12 +583,51 @@ pub async fn serve_thumbnail(Path(path): Path<String>) -> impl IntoResponse {
 // Idle Page
 // ============================================================================
 
+const BATCH_SIZE: usize = 10;
+
 #[derive(Serialize)]
-struct SlideshowPhoto {
+pub struct SlideshowPhoto {
     id: i64,
     url: String,
     caption: Option<String>,
     config: PhotoConfig,
+}
+
+/// Pick up to `count` random photos matching the current time-of-day tag set.
+/// `exclude` drops a specific photo id (used to avoid an immediate repeat at a
+/// batch seam when a tag set has very few photos).
+async fn pick_slideshow_photos(
+    pool: &DbPool,
+    filter_tags: &[String],
+    count: usize,
+    exclude: Option<i64>,
+) -> Vec<SlideshowPhoto> {
+    let mut photos = get_all_photos(pool).await.unwrap_or_default();
+
+    // Filter by tags if configured
+    if !filter_tags.is_empty() {
+        photos.retain(|p| {
+            p.tags.iter().any(|tag| filter_tags.contains(&tag.to_lowercase()))
+        });
+    }
+
+    if let Some(exclude_id) = exclude {
+        photos.retain(|p| p.id != exclude_id);
+    }
+
+    let mut rng = rand::rng();
+    photos.shuffle(&mut rng);
+
+    photos
+        .into_iter()
+        .take(count)
+        .map(|p| SlideshowPhoto {
+            id: p.id,
+            url: format!("/photos/{}", p.path.display()),
+            caption: p.caption,
+            config: p.config,
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -607,31 +647,9 @@ pub async fn idle_page(
     let user_settings = settings::read_settings(&headers);
     let filter_tags = user_settings.parsed_tags();
 
-    let mut photos = get_all_photos(&pool).await.unwrap_or_default();
-
-    // Filter by tags if configured
-    if !filter_tags.is_empty() {
-        photos.retain(|p| {
-            p.tags.iter().any(|tag| {
-                filter_tags.contains(&tag.to_lowercase())
-            })
-        });
-    }
-    
-    // Shuffle photos
-    let mut rng = rand::rng();
-    photos.shuffle(&mut rng);
-
-    // Convert to slideshow format with config
-    let slideshow_photos: Vec<SlideshowPhoto> = photos
-        .iter()
-        .map(|p| SlideshowPhoto {
-            id: p.id,
-            url: format!("/photos/{}", p.path.display()),
-            caption: p.caption.clone(),
-            config: p.config.clone(),
-        })
-        .collect();
+    // Send only a small first batch; the client refills from /idle/photos as it
+    // approaches the end, which also lets the set drift as the time of day changes.
+    let slideshow_photos = pick_slideshow_photos(&pool, &filter_tags, BATCH_SIZE, None).await;
 
     let photos_json = serde_json::to_string(&slideshow_photos).unwrap_or_else(|_| "[]".to_string());
     
@@ -685,6 +703,26 @@ pub async fn idle_page(
     };
 
     Html(html.render().into_inner())
+}
+
+#[derive(Deserialize)]
+pub struct IdlePhotosQuery {
+    count: Option<usize>,
+    exclude: Option<i64>,
+}
+
+/// JSON refill endpoint for the slideshow. Re-evaluates the time-of-day tag set
+/// on every call (via `parsed_tags`), so a long-running slideshow drifts into
+/// evening/night photos as real time passes.
+pub async fn idle_photos(
+    State(pool): State<DbPool>,
+    Query(q): Query<IdlePhotosQuery>,
+    headers: HeaderMap,
+) -> Json<Vec<SlideshowPhoto>> {
+    let user_settings = settings::read_settings(&headers);
+    let filter_tags = user_settings.parsed_tags();
+    let count = q.count.unwrap_or(BATCH_SIZE).min(50);
+    Json(pick_slideshow_photos(&pool, &filter_tags, count, q.exclude).await)
 }
 
 // ============================================================================

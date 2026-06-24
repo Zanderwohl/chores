@@ -136,6 +136,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(tasks::homepage))
         .route("/idle", get(photos::idle_page))
+        .route("/idle/photos", get(photos::idle_photos))
         .route("/photos", get(photos::photos_index))
         .route("/photos/list", get(photos::photos_list))
         .route("/photos/upload", get(photos::upload_page).post(photos::upload_photo))
