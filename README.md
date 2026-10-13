@@ -48,6 +48,11 @@ Environment variables can be set in the bash environment, in the .env file, or a
 | Time Zone | tz | TZ | Locale string for the sever and user's time zone | America/Chicago |
 | Database File | db | DATABASE_URL | The file path to place/use the sqlite file. | chores.db |
 | Port | p | PORT | The port to bind the server to |
+| Shared Calendars | | CALENDAR_ICS_URL | Secret iCal (.ics) address(es) of calendars to show as non-completeable tasks, comma-separated. Fetched by the server hourly; never sent to the kiosk. | https://calendar.google.com/calendar/ical/…/private-…/basic.ics |
+
+### Shared calendars
+
+In Google Calendar, open **Settings → (your calendar) → Integrate calendar** and copy the **Secret address in iCal format**. Set it as `CALENDAR_ICS_URL` in the server's environment or `.env`. The server re-fetches the feed every hour and shows its events (all-day and timed, including recurring ones) on the homepage, Daily and Calendar pages. The address grants read access to the calendar, so keep it out of version control; if it leaks, reset it from the same settings page.
 
 ## Credits
 

@@ -1,3 +1,4 @@
+mod calendar;
 mod config;
 mod db;
 mod migrate;
@@ -129,6 +130,9 @@ async fn main() -> Result<()> {
     fs::create_dir_all("thumbnails")?;
     let photos_path = Path::new("photos");
     photos::sync_photos(&pool, photos_path).await?;
+
+    // Shared calendar feeds (secret iCal URLs, comma-separated): env var > .env
+    calendar::start(&get_config("CALENDAR_ICS_URL", None, &dotenv, ""));
 
     fs::create_dir_all("static")?;
     let static_dir = ServeDir::new("static");

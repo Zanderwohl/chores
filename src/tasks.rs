@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info};
 
+use crate::calendar;
 use crate::config::get_timezone;
 use crate::settings;
 use crate::db::{self, DbPool};
@@ -356,6 +357,11 @@ async fn restore_task(State(pool): State<DbPool>, Path(id): Path<String>, header
 // GET /tasks/:id - Show page for a single task
 async fn task_show(State(pool): State<DbPool>, Path(id): Path<String>, headers: HeaderMap) -> Html<String> {
     let is_touch = settings::is_touch_mode(&headers);
+    if calendar::is_calendar_id(&id) {
+        if let Some(event) = calendar::get_event(&id) {
+            return Html(render_calendar_event_page(&event, is_touch));
+        }
+    }
     let task = if is_demo_id(&id) {
         let tasks = get_demo_tasks();
         let tasks_guard = tasks.lock().unwrap();
@@ -448,6 +454,23 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
         }
     }
 
+    // Shared-calendar events: in progress or starting soon join "Upcoming", the
+    // rest of the week gets its own section, and recently ended ones show as passed.
+    let mut calendar_events = Vec::new();
+    for event in calendar::events() {
+        let finish = event.end.max(event.start);
+        let task = calendar_task(&event);
+        if finish <= now {
+            if now.signed_duration_since(finish) <= Duration::days(1) {
+                completed_tasks.push((task, None));
+            }
+        } else if event.start <= now || task.is_alerting() {
+            alerting_tasks.push(task);
+        } else if event.start <= now + Duration::days(CALENDAR_HOMEPAGE_DAYS) {
+            calendar_events.push(task);
+        }
+    }
+
     // Sort each category by next due date
     due_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
     alerting_tasks.sort_by(|a, b| a.next_due_date().cmp(&b.next_due_date()));
@@ -537,6 +560,17 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                         }
                     }
 
+                    @if !calendar_events.is_empty() {
+                        section .task-section {
+                            h2 { "Calendar" }
+                            div .task-card-grid {
+                                @for task in &calendar_events {
+                                    (Raw::dangerously_create(&render_task_card(task, "event", is_touch, None)))
+                                }
+                            }
+                        }
+                    }
+
                     @if !recurring_events.is_empty() {
                         section .task-section {
                             h2 { "Recurring Events" }
@@ -559,7 +593,7 @@ pub async fn homepage(State(pool): State<DbPool>, headers: HeaderMap) -> Html<St
                         }
                     }
 
-                    @if due_tasks.is_empty() && alerting_tasks.is_empty() && completed_tasks.is_empty() && other_tasks.is_empty() && recurring_events.is_empty() && inactive_tasks.is_empty() {
+                    @if due_tasks.is_empty() && alerting_tasks.is_empty() && completed_tasks.is_empty() && other_tasks.is_empty() && calendar_events.is_empty() && recurring_events.is_empty() && inactive_tasks.is_empty() {
                         div .empty-state {
                             p { "No tasks yet!" }
                             @if is_touch {
@@ -685,6 +719,9 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_tou
         }
     }
     
+    let calendar_on_day = calendar_tasks_on(date);
+    tasks_on_day.extend(calendar_on_day.iter().map(|(t, time)| (t, *time)));
+
     // Sort by time
     tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
     
@@ -762,7 +799,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_tou
         r#"<div class="daily-empty"><p>No events on this day</p></div>"#.to_string()
     } else {
         tasks_on_day.iter().map(|(task, time)| {
-            let time_str = time.format("%H:%M").to_string();
+            let time_str = event_time_label(task, *time);
             let task_url = format!("/tasks/{}", task.id);
             if is_touch {
                 format!(
@@ -772,7 +809,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_tou
                             {}
                         </button>
                     </div>"##,
-                    time_str, task_url, task.name
+                    time_str, task_url, html_escape(&task.name)
                 )
             } else {
                 format!(
@@ -780,7 +817,7 @@ async fn daily_page_inner(pool: &DbPool, year: i32, month: u32, day: u32, is_tou
                         <span class="daily-event-time">{}</span>
                         <a class="daily-event-name" href="{}">{}</a>
                     </div>"##,
-                    time_str, task_url, task.name
+                    time_str, task_url, html_escape(&task.name)
                 )
             }
         }).collect()
@@ -1065,6 +1102,9 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: boo
             }
         }
         
+        let calendar_on_day = calendar_tasks_on(date);
+        tasks_on_day.extend(calendar_on_day.iter().map(|(t, time)| (t, *time)));
+
         tasks_on_day.sort_by(|a, b| a.1.cmp(&b.1));
         
         let cell_class = if is_today { "calendar-cell calendar-cell-today" } else { "calendar-cell" };
@@ -1075,10 +1115,10 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: boo
             // Touch mode: entire cell is clickable, no individual task links
             let tasks_html: String = tasks_on_day.iter()
                 .map(|(task, time)| {
-                    let time_str = time.format("%H:%M").to_string();
+                    let time_str = event_time_label(task, *time);
                     format!(
                         r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <span class="calendar-cell-event-name">{}</span></div>"#,
-                        time_str, task.name
+                        time_str, html_escape(&task.name)
                     )
                 })
                 .collect();
@@ -1094,11 +1134,11 @@ async fn calendar_page_inner(pool: &DbPool, year: i32, month: u32, is_touch: boo
             // Non-touch mode: individual task links
             let tasks_html: String = tasks_on_day.iter()
                 .map(|(task, time)| {
-                    let time_str = time.format("%H:%M").to_string();
+                    let time_str = event_time_label(task, *time);
                     let task_url = format!("/tasks/{}", task.id);
                     format!(
                         r#"<div class="calendar-cell-event"><span class="calendar-cell-event-time">{}</span> <a href="{}" class="calendar-cell-event-name">{}</a></div>"#,
-                        time_str, task_url, task.name
+                        time_str, task_url, html_escape(&task.name)
                     )
                 })
                 .collect();
@@ -2336,6 +2376,140 @@ fn create_default_task() -> DemoTask {
     }
 }
 
+// ============================================================================
+// Calendar Feed Events
+// ============================================================================
+
+/// How far ahead the homepage lists calendar events; the daily and calendar
+/// views show every cached event.
+const CALENDAR_HOMEPAGE_DAYS: i64 = 7;
+
+/// A shared-calendar event as a one-time, non-completeable task.
+fn calendar_task(event: &calendar::CalendarEvent) -> DemoTask {
+    DemoTask {
+        id: event.id.clone(),
+        name: event.summary.clone(),
+        details: event.location.clone(),
+        once: Once { datetime: event.start },
+        completeable: false,
+        ..create_default_task()
+    }
+}
+
+/// Calendar events touching `date`, paired with their display time on that day.
+fn calendar_tasks_on(date: chrono::NaiveDate) -> Vec<(DemoTask, NaiveTime)> {
+    calendar::events_on(date)
+        .iter()
+        .map(|e| (calendar_task(e), e.time_on(date)))
+        .collect()
+}
+
+/// The time column for the daily and calendar views ("All day" for all-day events).
+fn event_time_label(task: &DemoTask, time: NaiveTime) -> String {
+    if calendar::is_calendar_id(&task.id) && calendar::get_event(&task.id).is_some_and(|e| e.all_day) {
+        "All day".to_string()
+    } else {
+        time.format("%H:%M").to_string()
+    }
+}
+
+/// When a calendar event happens, relative to today, e.g. "Today, all day" or
+/// "Tomorrow 14:00–15:30".
+fn calendar_when(event: &calendar::CalendarEvent) -> String {
+    let tz = get_timezone();
+    let today = Utc::now().with_timezone(&tz).date_naive();
+    let start = event.start.with_timezone(&tz);
+    let end = event.end.with_timezone(&tz);
+    let day_name = |d: chrono::NaiveDate| -> String {
+        match (d - today).num_days() {
+            -1 => "Yesterday".to_string(),
+            0 => "Today".to_string(),
+            1 => "Tomorrow".to_string(),
+            _ => d.format("%A, %B %-d").to_string(),
+        }
+    };
+    if event.all_day {
+        // DTEND is exclusive for all-day events.
+        let last_day = (end - Duration::seconds(1)).date_naive().max(start.date_naive());
+        if last_day == start.date_naive() {
+            format!("{}, all day", day_name(start.date_naive()))
+        } else {
+            format!("{} – {}", day_name(start.date_naive()), day_name(last_day))
+        }
+    } else if end <= start {
+        format!("{} at {}", day_name(start.date_naive()), start.format("%H:%M"))
+    } else if end.date_naive() == start.date_naive() {
+        format!("{} {}–{}", day_name(start.date_naive()), start.format("%H:%M"), end.format("%H:%M"))
+    } else {
+        format!(
+            "{} {} – {} {}",
+            day_name(start.date_naive()),
+            start.format("%H:%M"),
+            day_name(end.date_naive()),
+            end.format("%H:%M")
+        )
+    }
+}
+
+fn render_calendar_event_page(event: &calendar::CalendarEvent, is_touch: bool) -> String {
+    maud! {
+        !DOCTYPE
+        html {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { (event.summary) " - Chores" }
+                link rel="stylesheet" href="/static/system.css";
+                link rel="stylesheet" href="/static/app.css";
+                script src="/static/auto-sleep.js" {}
+            }
+            body {
+                div .task-show-page id="task-show-page" {
+                    div .task-show-header {
+                        @if is_touch {
+                            button .btn onclick="window.location.href='/'" { "← Home" }
+                            " "
+                            button .btn onclick="window.location.href='/calendar'" { "Calendar" }
+                        } @else {
+                            a href="/" { "← Home" }
+                            " | "
+                            a href="/calendar" { "Calendar" }
+                        }
+                    }
+                    div .task-show-title-row {
+                        h1 { (event.summary) }
+                    }
+                    div .task-show-info {
+                        div .task-show-info-row {
+                            strong { "When: " }
+                            span { (calendar_when(event)) }
+                        }
+                        @if !event.location.is_empty() {
+                            div .task-show-info-row {
+                                strong { "Where: " }
+                                span { (event.location) }
+                            }
+                        }
+                        div .task-show-info-row {
+                            strong { "Source: " }
+                            span { "Shared calendar (read-only)" }
+                        }
+                    }
+                    @if !event.description.is_empty() {
+                        div .task-show-details {
+                            @for line in event.description.lines() {
+                                p { (line) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    .render()
+    .into_inner()
+}
+
 #[derive(Clone)]
 pub struct DemoTask {
     pub id: String,
@@ -2405,6 +2579,12 @@ impl DemoTask {
 
     /// Format the next due date as a human-readable string
     pub fn time_as_readable_string(&self) -> String {
+        if calendar::is_calendar_id(&self.id) {
+            if let Some(event) = calendar::get_event(&self.id) {
+                return calendar_when(&event);
+            }
+        }
+
         // For Once tasks that have passed, show "No future occurrences"
         if self.is_once_completed() {
             return "No future occurrences".to_string();

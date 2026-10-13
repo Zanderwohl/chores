@@ -6,6 +6,7 @@
 //!
 //! Creates a backup of all database entries to a new file.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;

@@ -6,6 +6,7 @@
 //! Deletes all photo_blobs entries for photos that are not missing (exist on disk),
 //! then VACUUMs the database to reclaim space.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;

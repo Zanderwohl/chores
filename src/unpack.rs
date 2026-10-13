@@ -6,6 +6,7 @@
 //!
 //! Extracts all photo BLOBs from photo_blobs table and writes them to the photos folder.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;

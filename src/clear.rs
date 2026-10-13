@@ -4,6 +4,7 @@
 //!
 //! Deletes all entries from all database tables.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;
