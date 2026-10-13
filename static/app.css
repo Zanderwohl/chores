@@ -704,11 +704,6 @@ body {
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
 }
 
-.pagination-ellipsis {
-    padding: 6px 8px;
-    font-size: 16px;
-}
-
 /* Form validation error styles */
 .input-error {
     border: 2px solid #c00 !important;
@@ -1575,8 +1570,9 @@ a.daily-event-name:hover {
     margin-top: 8px;
     padding: 8px;
     border: 2px solid #000;
-    font-family: Monaco, monospace;
-    font-size: 13px;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.4;
     word-break: break-all;
     user-select: all;
 }

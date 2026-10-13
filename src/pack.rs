@@ -8,6 +8,7 @@
 mod config;
 mod db;
 mod migrate;
+mod pagination;
 mod schedule;
 mod settings;
 mod tasks;

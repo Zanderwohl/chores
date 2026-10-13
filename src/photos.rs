@@ -16,6 +16,7 @@ use tokio::fs;
 use tracing::{error, info};
 
 use crate::db::DbPool;
+use crate::pagination;
 use crate::settings;
 
 fn html_escape(s: &str) -> String {
@@ -826,23 +827,6 @@ fn render_photo_list_item(photo: &Photo) -> String {
     )
 }
 
-/// Most page-number buttons the photo paginator shows at once.
-const PAGINATION_MAX_PAGES: i64 = 10;
-/// Most page numbers shown before the current page, unless the window is
-/// pushed left by running out of pages at the end.
-const PAGINATION_MAX_PREVIOUS: i64 = 2;
-
-/// The range of page numbers to show: up to `PAGINATION_MAX_PREVIOUS` before
-/// the current page and the rest after it. Near the last page, the leftover
-/// slots move to the left so the window stays full.
-fn pagination_window(current_page: i64, total_pages: i64) -> std::ops::RangeInclusive<i64> {
-    let end = (current_page - PAGINATION_MAX_PREVIOUS + PAGINATION_MAX_PAGES - 1)
-        .max(PAGINATION_MAX_PAGES)
-        .min(total_pages);
-    let start = (end - PAGINATION_MAX_PAGES + 1).max(1);
-    start..=end
-}
-
 pub(crate) fn render_photo_pagination(current_page: i64, total_pages: i64, per_page: i64, total_count: i64) -> String {
     if total_pages <= 1 {
         return String::new();
@@ -852,7 +836,7 @@ pub(crate) fn render_photo_pagination(current_page: i64, total_pages: i64, per_p
     let end = (current_page * per_page).min(total_count);
 
     let mut page_links = String::new();
-    for p in pagination_window(current_page, total_pages) {
+    for p in pagination::window(current_page, total_pages) {
         if p == current_page {
             page_links.push_str(&format!(
                 r#"<span class="pagination-page pagination-current">{}</span>"#,
@@ -1732,40 +1716,3 @@ pub async fn upload_photo(
         .unwrap()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn window(current: i64, total: i64) -> (i64, i64) {
-        let w = pagination_window(current, total);
-        (*w.start(), *w.end())
-    }
-
-    #[test]
-    fn test_pagination_window_fewer_pages_than_slots() {
-        assert_eq!(window(1, 5), (1, 5));
-        assert_eq!(window(5, 5), (1, 5));
-        assert_eq!(window(4, 10), (1, 10));
-    }
-
-    #[test]
-    fn test_pagination_window_near_start() {
-        assert_eq!(window(1, 100), (1, 10));
-        assert_eq!(window(2, 100), (1, 10));
-        assert_eq!(window(3, 100), (1, 10));
-    }
-
-    #[test]
-    fn test_pagination_window_two_previous() {
-        assert_eq!(window(4, 100), (2, 11));
-        assert_eq!(window(50, 100), (48, 57));
-    }
-
-    #[test]
-    fn test_pagination_window_near_end() {
-        assert_eq!(window(92, 100), (90, 99));
-        assert_eq!(window(93, 100), (91, 100));
-        assert_eq!(window(98, 100), (91, 100));
-        assert_eq!(window(100, 100), (91, 100));
-    }
-}

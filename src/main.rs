@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod migrate;
+mod pagination;
 mod photos;
 mod schedule;
 pub mod settings;
