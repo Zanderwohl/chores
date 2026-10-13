@@ -161,6 +161,7 @@ async fn main() -> Result<()> {
         .with_state(pool)
         .nest_service("/static", get_service(static_dir))
         .route_service("/favicon.ico", ServeFile::new("static/favicon.ico"))
+        .layer(axum::middleware::from_fn(settings::url_settings_middleware))
         .layer(TraceLayer::new_for_http());
 
     // Get port: CLI flag > env var > .env > 3000
