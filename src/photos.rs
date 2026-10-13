@@ -16,6 +16,7 @@ use tokio::fs;
 use tracing::{error, info};
 
 use crate::db::DbPool;
+use crate::pagination;
 use crate::settings;
 
 fn html_escape(s: &str) -> String {
@@ -826,7 +827,7 @@ fn render_photo_list_item(photo: &Photo) -> String {
     )
 }
 
-fn render_photo_pagination(current_page: i64, total_pages: i64, per_page: i64, total_count: i64) -> String {
+pub(crate) fn render_photo_pagination(current_page: i64, total_pages: i64, per_page: i64, total_count: i64) -> String {
     if total_pages <= 1 {
         return String::new();
     }
@@ -835,7 +836,7 @@ fn render_photo_pagination(current_page: i64, total_pages: i64, per_page: i64, t
     let end = (current_page * per_page).min(total_count);
 
     let mut page_links = String::new();
-    for p in 1..=total_pages {
+    for p in pagination::window(current_page, total_pages) {
         if p == current_page {
             page_links.push_str(&format!(
                 r#"<span class="pagination-page pagination-current">{}</span>"#,
@@ -1714,3 +1715,4 @@ pub async fn upload_photo(
         )))
         .unwrap()
 }
+

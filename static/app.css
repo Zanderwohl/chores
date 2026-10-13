@@ -704,11 +704,6 @@ body {
     font-family: Chicago_12, Chicago, Geneva, sans-serif;
 }
 
-.pagination-ellipsis {
-    padding: 6px 8px;
-    font-size: 16px;
-}
-
 /* Form validation error styles */
 .input-error {
     border: 2px solid #c00 !important;
@@ -1570,6 +1565,18 @@ a.daily-event-name:hover {
     margin-left: 26px;
 }
 
+.settings-page .kiosk-url {
+    display: block;
+    margin-top: 8px;
+    padding: 8px;
+    border: 2px solid #000;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.4;
+    word-break: break-all;
+    user-select: all;
+}
+
 /* People management */
 .people-list {
     list-style: none;
@@ -1686,4 +1693,13 @@ a.daily-event-name:hover {
     padding: 12px;
     margin-bottom: 16px;
     color: #c00;
+}
+
+/* Storybook */
+.storybook-example {
+    margin-bottom: 24px;
+}
+
+.storybook-example h3 {
+    margin: 0;
 }

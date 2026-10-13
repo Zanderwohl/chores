@@ -15,6 +15,7 @@ use tracing::{error, info};
 use crate::config::get_timezone;
 use crate::settings;
 use crate::db::{self, DbPool};
+use crate::pagination;
 use crate::schedule::{CertainMonths, DaysOfWeek, Monthwise, NDays, NWeeks, Once, ScheduleKind, WeeksOfMonth};
 
 // ============================================================================
@@ -2667,39 +2668,8 @@ fn render_pagination(current_page: i64, total_pages: i64, per_page: i64, sort: &
     let start_item = (current_page - 1) * per_page + 1;
     let end_item = (current_page * per_page).min(total_count);
 
-    // Build page numbers to show
-    let mut page_nums: Vec<i64> = Vec::new();
-
-    // Always show first page
-    page_nums.push(1);
-
-    // Show pages around current
-    for p in (current_page - 2)..=(current_page + 2) {
-        if p > 1 && p < total_pages && !page_nums.contains(&p) {
-            page_nums.push(p);
-        }
-    }
-
-    // Always show last page
-    if total_pages > 1 && !page_nums.contains(&total_pages) {
-        page_nums.push(total_pages);
-    }
-
-    page_nums.sort();
-    page_nums.dedup();
-
-    // Build the page links with ellipsis
     let mut page_links = String::new();
-    let mut prev_page: Option<i64> = None;
-
-    for &p in &page_nums {
-        // Add ellipsis if there's a gap
-        if let Some(prev) = prev_page {
-            if p > prev + 1 {
-                page_links.push_str(r#"<span class="pagination-ellipsis">…</span>"#);
-            }
-        }
-
+    for p in pagination::window(current_page, total_pages) {
         if p == current_page {
             page_links.push_str(&format!(
                 r#"<span class="pagination-page pagination-current">{}</span>"#,
@@ -2711,8 +2681,6 @@ fn render_pagination(current_page: i64, total_pages: i64, per_page: i64, sort: &
                 p, per_page, sort, p
             ));
         }
-
-        prev_page = Some(p);
     }
 
     // First and prev buttons
