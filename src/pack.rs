@@ -5,6 +5,7 @@
 //!
 //! Reads all non-missing photos from disk and stores their contents in photo_blobs table.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;

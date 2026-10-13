@@ -4,6 +4,7 @@
 //!
 //! Reads from seed.toml in the project root and inserts tasks into the database.
 
+mod calendar;
 mod config;
 mod db;
 mod migrate;

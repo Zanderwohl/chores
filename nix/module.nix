@@ -43,6 +43,16 @@ in
       description = "Enable touch-friendly mode with larger buttons.";
     };
 
+    environmentFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/run/secrets/chores.env";
+      description = ''
+        File of extra environment variables, kept out of the Nix store. Use it
+        for secrets such as `CALENDAR_ICS_URL=https://calendar.google.com/...`.
+      '';
+    };
+
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -74,6 +84,7 @@ in
           "--port" (toString cfg.port)
           "--tz" cfg.timezone
         ] ++ lib.optionals cfg.touchMode [ "--touch" ]);
+        EnvironmentFile = lib.mkIf (cfg.environmentFile != null) cfg.environmentFile;
         Restart = "on-failure";
         RestartSec = 5;
 
