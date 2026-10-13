@@ -1698,3 +1698,12 @@ a.daily-event-name:hover {
     margin-bottom: 16px;
     color: #c00;
 }
+
+/* Storybook */
+.storybook-example {
+    margin-bottom: 24px;
+}
+
+.storybook-example h3 {
+    margin: 0;
+}

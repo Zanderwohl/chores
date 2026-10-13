@@ -512,7 +512,7 @@ fn render_settings_page(
                     }
                     fieldset {
                         legend { "Kiosk URL" }
-                        p .form-help { "Open this URL to apply the settings above on any device, e.g. a kiosk that clears its cookies on boot." }
+                        p .form-help { "Open this URL to apply the settings above on any device." }
                         code .kiosk-url { (kiosk_url) }
                     }
                 }
