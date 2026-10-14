@@ -145,6 +145,7 @@ async fn main() -> Result<()> {
         .route("/photos", get(photos::photos_index))
         .route("/photos/list", get(photos::photos_list))
         .route("/photos/upload", get(photos::upload_page).post(photos::upload_photo))
+        .route("/photos/random-untagged", get(photos::random_untagged))
         .route("/photos/upload/check", get(photos::upload_check))
         .route("/photos/{*path}", get(photos::serve_photo))
         .route("/photo/{id}", get(photos::photo_show))

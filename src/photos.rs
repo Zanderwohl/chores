@@ -757,6 +757,7 @@ pub async fn photos_index(State(_pool): State<DbPool>) -> Html<String> {
                     div .page-header {
                         h1 { "Photos" }
                         div .page-header-buttons {
+                            a .btn href="/photos/random-untagged" { "Label" }
                             a .btn href="/photos/upload" { "Upload" }
                         }
                     }
@@ -1191,6 +1192,7 @@ pub async fn photo_edit(
                 <div class="control-actions">
                     <button type="submit" class="btn btn-default">Save</button>
                     <a class="btn" href="/photo/{id}">Discard</a>
+                    <button type="button" class="btn control-actions-right" onclick="labelNext()">Label</button>
                 </div>
             </div>
         </form>
@@ -1203,6 +1205,10 @@ pub async fn photo_edit(
             var targetId = (dir === 'prev') ? window.PREV_PHOTO_ID : window.NEXT_PHOTO_ID;
             if (targetId === null) return;
             document.getElementById('redirect_to').value = '/photo/' + targetId + '/edit';
+            document.getElementById('photo-config-form').submit();
+        }}
+        function labelNext() {{
+            document.getElementById('redirect_to').value = '/photos/random-untagged?exclude={id}';
             document.getElementById('photo-config-form').submit();
         }}
     </script>
@@ -1458,6 +1464,38 @@ pub async fn save_photo_config(
     };
 
     Redirect::to(&target)
+}
+
+#[derive(Deserialize)]
+pub struct RandomUntaggedQuery {
+    exclude: Option<i64>,
+}
+
+/// Redirect to the edit page of a random photo that has no tags, or back to
+/// the photo list if every photo is tagged.
+pub async fn random_untagged(
+    State(pool): State<DbPool>,
+    Query(q): Query<RandomUntaggedQuery>,
+) -> Redirect {
+    let row: Result<Option<(i64,)>, _> = sqlx::query_as(
+        "SELECT p.id FROM photos p
+         WHERE p.missing = 0
+           AND p.id != ?
+           AND NOT EXISTS (SELECT 1 FROM photo_tags pt WHERE pt.photo_id = p.id)
+         ORDER BY RANDOM() LIMIT 1"
+    )
+        .bind(q.exclude.unwrap_or(-1))
+        .fetch_optional(&pool)
+        .await;
+
+    match row {
+        Ok(Some((id,))) => Redirect::to(&format!("/photo/{}/edit", id)),
+        Ok(None) => Redirect::to("/photos"),
+        Err(e) => {
+            error!(error = %e, "Failed to pick random untagged photo");
+            Redirect::to("/photos")
+        }
+    }
 }
 
 pub async fn update_photo(pool: &DbPool, id: i64, config: &PhotoConfig, caption: Option<&str>) -> Result<()> {
